@@ -122,39 +122,15 @@
           Official IPL teams, real player jerseys, commentary sound effects & zero-database multiplayer!
         </p>
 
-        <!-- Connection Mode Toggle: Cloud (Render) vs Localhost / Wi-Fi -->
-        <div class="mb-4 p-3 bg-slate-950/90 rounded-2xl border border-slate-800 text-left">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Connection Mode</span>
-            <span id="activeModeBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              Cloud Live
-            </span>
+        <!-- CLOUD SERVER STATUS PILL -->
+        <div class="mb-5 py-2 px-3.5 bg-slate-950/80 rounded-xl border border-slate-800 flex items-center justify-between text-left">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" id="welcomeStatusDot"></span>
+            <span class="text-xs font-bold text-slate-300">Cloud Multiplayer</span>
           </div>
-          <div class="grid grid-cols-2 gap-2">
-            <button 
-              type="button" 
-              id="btnModeCloud" 
-              class="py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-amber-500 text-slate-950 border-amber-500 shadow-md">
-              <i class="fa-solid fa-cloud text-xs"></i>
-              <span>Cloud (Render)</span>
-            </button>
-            <button 
-              type="button" 
-              id="btnModeLocal" 
-              class="py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700">
-              <i class="fa-solid fa-laptop text-xs"></i>
-              <span>Localhost / Wi-Fi</span>
-            </button>
-          </div>
-          <div id="localModeGuide" class="hidden mt-2 p-2 bg-slate-900/90 rounded-xl text-[11px] text-slate-300 border border-slate-800 space-y-1">
-            <div class="text-amber-400 font-bold flex items-center space-x-1">
-              <i class="fa-solid fa-circle-check"></i>
-              <span>Offline / Localhost Mode Active</span>
-            </div>
-            <p class="text-[10px] text-slate-400 leading-relaxed">
-              No cloud server needed! Connects directly to local server on port 3000. Mobile devices on your home Wi-Fi can join instantly.
-            </p>
-          </div>
+          <span id="activeModeBadge" class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            Render Cloud Live
+          </span>
         </div>
 
         <!-- Manager Name -->
@@ -640,6 +616,17 @@
     </div>
   </div>
 
-  <script src="/app.js?v=6.0"></script>
+  <script src="/app.js?v=8.0"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          console.log('[PWA] Service Worker registered successfully!', reg.scope);
+        }).catch((err) => {
+          console.warn('[PWA] Service Worker registration failed:', err);
+        });
+      });
+    }
+  </script>
 </body>
 </html>

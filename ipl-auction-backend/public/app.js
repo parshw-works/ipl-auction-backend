@@ -1,29 +1,11 @@
-// Dynamic backend server resolution (Works on localhost, mobile LAN, and Netlify + Render cloud)
-const savedMode = localStorage.getItem('ipl_auction_network_mode');
-const savedBackendUrl = localStorage.getItem('ipl_auction_server_url');
-const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.') || window.location.hostname === '';
-// Default live cloud backend on Render
+// Official Cloud Backend URL on Render
 const CLOUD_BACKEND_URL = 'https://ipl-auction-backend-83zt.onrender.com';
-
-let currentMode = savedMode || (isLocal ? 'local' : 'cloud');
-let ACTIVE_BACKEND = '';
-
-if (currentMode === 'local') {
-  ACTIVE_BACKEND = isLocal ? '' : 'http://localhost:3000';
-} else {
-  ACTIVE_BACKEND = (savedBackendUrl && savedBackendUrl.trim()) ? savedBackendUrl.trim() : CLOUD_BACKEND_URL;
-}
 
 // Server connection status elements
 const serverStatusDot = document.getElementById('serverStatusDot');
 const serverStatusLabel = document.getElementById('serverStatusLabel');
-const btnServerConfig = document.getElementById('btnServerConfig');
-
-// Network Mode Selector Elements
-const btnModeCloud = document.getElementById('btnModeCloud');
-const btnModeLocal = document.getElementById('btnModeLocal');
+const welcomeStatusDot = document.getElementById('welcomeStatusDot');
 const activeModeBadge = document.getElementById('activeModeBadge');
-const localModeGuide = document.getElementById('localModeGuide');
 
 function updateServerUI(status, label) {
   if (serverStatusDot) {
@@ -35,6 +17,13 @@ function updateServerUI(status, label) {
       serverStatusDot.className = 'w-2 h-2 rounded-full bg-rose-500';
     }
   }
+  if (welcomeStatusDot) {
+    welcomeStatusDot.className = (status === 'connected') 
+      ? 'w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50' 
+      : (status === 'connecting') 
+      ? 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse' 
+      : 'w-2.5 h-2.5 rounded-full bg-rose-500';
+  }
   if (serverStatusLabel) {
     serverStatusLabel.textContent = label;
     if (status === 'connected') {
@@ -45,55 +34,18 @@ function updateServerUI(status, label) {
       serverStatusLabel.className = 'hidden sm:inline text-[11px] font-semibold text-rose-400';
     }
   }
-}
-
-function applyNetworkModeUI(mode) {
-  if (mode === 'local') {
-    if (activeModeBadge) {
-      activeModeBadge.textContent = 'Localhost';
-      activeModeBadge.className = 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30';
-    }
-    if (btnModeLocal) {
-      btnModeLocal.className = 'py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-amber-500 text-slate-950 border-amber-500 shadow-md';
-    }
-    if (btnModeCloud) {
-      btnModeCloud.className = 'py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700';
-    }
-    if (localModeGuide) localModeGuide.classList.remove('hidden');
-  } else {
-    if (activeModeBadge) {
+  if (activeModeBadge) {
+    if (status === 'connected') {
       activeModeBadge.textContent = 'Cloud Live';
-      activeModeBadge.className = 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+      activeModeBadge.className = 'text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+    } else if (status === 'connecting') {
+      activeModeBadge.textContent = 'Waking Server...';
+      activeModeBadge.className = 'text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse';
+    } else {
+      activeModeBadge.textContent = 'Sleeping (Idle)';
+      activeModeBadge.className = 'text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-slate-500/20 text-slate-400 border border-slate-500/30';
     }
-    if (btnModeCloud) {
-      btnModeCloud.className = 'py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-amber-500 text-slate-950 border-amber-500 shadow-md';
-    }
-    if (btnModeLocal) {
-      btnModeLocal.className = 'py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700';
-    }
-    if (localModeGuide) localModeGuide.classList.add('hidden');
   }
-}
-
-applyNetworkModeUI(currentMode);
-
-if (btnModeCloud) {
-  btnModeCloud.addEventListener('click', () => {
-    localStorage.setItem('ipl_auction_network_mode', 'cloud');
-    localStorage.removeItem('ipl_auction_server_url');
-    window.location.reload();
-  });
-}
-
-if (btnModeLocal) {
-  btnModeLocal.addEventListener('click', () => {
-    localStorage.setItem('ipl_auction_network_mode', 'local');
-    const localHostUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-      ? window.location.origin
-      : 'http://localhost:3000';
-    localStorage.setItem('ipl_auction_server_url', localHostUrl);
-    window.location.reload();
-  });
 }
 
 // Resilient Socket.IO client creation
@@ -111,24 +63,23 @@ function initSocket() {
       transports: ['websocket', 'polling'],
       timeout: 25000,
       reconnection: true,
-      reconnectionAttempts: 25,
+      reconnectionAttempts: 30,
       reconnectionDelay: 1000
     };
 
-    if (currentMode === 'local') {
-      socket = isLocal ? io(opts) : io('http://localhost:3000', opts);
-    } else {
-      socket = io(CLOUD_BACKEND_URL, opts);
-    }
+    updateServerUI('connecting', 'Connecting...');
+
+    // Always connect directly to Render backend
+    socket = io(CLOUD_BACKEND_URL, opts);
 
     socket.on('connect', () => {
-      console.log('[IPL] Connected to server! Socket ID:', socket.id);
-      updateServerUI('connected', currentMode === 'local' ? 'Localhost Live' : 'Cloud Live');
+      console.log('[IPL] Connected to Render cloud! Socket ID:', socket.id);
+      updateServerUI('connected', 'Cloud Live');
     });
 
     socket.on('connect_error', (err) => {
-      console.warn('[IPL] Server connecting/waking...', err.message);
-      updateServerUI('connecting', currentMode === 'local' ? 'Connecting Local...' : 'Waking Server...');
+      console.warn('[IPL] Server waking up...', err.message);
+      updateServerUI('connecting', 'Waking Server...');
     });
 
     socket.on('disconnect', () => {
@@ -146,28 +97,41 @@ function initSocket() {
   }
 }
 
-// Initialize immediately if io is present
+// Render Free-Tier Sleep Protection:
+// If completely idle for 5 minutes without creating/joining a room, disconnect to let Render sleep.
+let idleTimer = null;
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+function resetIdleTimer() {
+  if (idleTimer) clearTimeout(idleTimer);
+  // Auto-reconnect if user returns and is not in a room
+  if (!socket && !currentRoom) {
+    initSocket();
+  }
+  // Disconnect after 5 minutes of total inactivity (only if not inside an active room)
+  idleTimer = setTimeout(() => {
+    if (socket && !currentRoom) {
+      console.log('[IPL] 5 minutes idle — disconnecting socket to let Render sleep.');
+      socket.disconnect();
+      socket = null;
+      updateServerUI('disconnected', 'Sleeping (Idle)');
+    }
+  }, IDLE_TIMEOUT_MS);
+}
+
+// Reset idle timer on user touch or click
+['click', 'touchstart', 'keydown'].forEach(event => {
+  window.addEventListener(event, resetIdleTimer, { passive: true });
+});
+resetIdleTimer();
+
+// Connect immediately on page load
 if (typeof io !== 'undefined') {
   initSocket();
 } else {
   window.addEventListener('load', () => {
     if (!socket && typeof io !== 'undefined') {
       initSocket();
-    }
-  });
-}
-
-if (btnServerConfig) {
-  btnServerConfig.addEventListener('click', () => {
-    const current = ACTIVE_BACKEND || window.location.origin;
-    const newUrl = prompt(`Current Backend Server:\n${current}\n\nTo connect to a custom backend, enter the URL:\n(Leave empty to reset to default ${CLOUD_BACKEND_URL})`, current);
-    if (newUrl !== null) {
-      if (newUrl.trim() === '') {
-        localStorage.removeItem('ipl_auction_server_url');
-      } else {
-        localStorage.setItem('ipl_auction_server_url', newUrl.trim());
-      }
-      window.location.reload();
     }
   });
 }
@@ -478,12 +442,12 @@ btnSubmitCreateRoom.addEventListener('click', () => {
   }
 
   if (!socket) {
-    showToast(currentMode === 'local' ? 'Connecting to local server (port 3000)... Please wait.' : 'Connecting to cloud server... Please wait a few seconds.', 'warning');
+    showToast('Connecting to cloud server... Please wait a few seconds.', 'warning');
     return;
   }
 
   if (!socket.connected) {
-    showToast(currentMode === 'local' ? 'Connecting to local server on port 3000...' : 'Connecting to Render cloud server... Please wait a moment while server wakes up.', 'info');
+    showToast('Connecting to Render cloud server... Server may be waking up.', 'info');
   }
 
   const origHTML = btnSubmitCreateRoom.innerHTML;
@@ -493,7 +457,7 @@ btnSubmitCreateRoom.addEventListener('click', () => {
   const timeout = setTimeout(() => {
     btnSubmitCreateRoom.disabled = false;
     btnSubmitCreateRoom.innerHTML = origHTML;
-    showToast(currentMode === 'local' ? 'Could not reach local server. Make sure node server.js is running!' : 'Cloud server is still spinning up (free servers can take 30-40s on first load). Please click again in 10 seconds.', 'warning');
+    showToast('Cloud server is still spinning up (free servers can take 20-30s on first request). Please try again in a moment.', 'warning');
   }, 15000);
 
   const initialPurse = document.getElementById('selectInitialPurse').value;
@@ -532,7 +496,7 @@ btnSubmitJoinRoom.addEventListener('click', () => {
   }
 
   if (!socket) {
-    showToast(currentMode === 'local' ? 'Connecting to local server (port 3000)... Please wait.' : 'Connecting to cloud server... Please wait a few seconds.', 'warning');
+    showToast('Connecting to cloud server... Please wait a few seconds.', 'warning');
     return;
   }
 
