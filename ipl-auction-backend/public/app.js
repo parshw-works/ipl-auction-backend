@@ -73,7 +73,7 @@ function initSocket() {
     socket = io(CLOUD_BACKEND_URL, opts);
 
     socket.on('connect', () => {
-      console.log('[IPL] Connected to Render cloud! Socket ID:', socket.id);
+      console.log('[IPL] Connected to cloud! Socket ID:', socket.id);
       updateServerUI('connected', 'Cloud Live');
     });
 
@@ -95,6 +95,19 @@ function initSocket() {
     console.error('[IPL] Socket initialization error:', e);
     return null;
   }
+}
+
+// Allow user to tap status badge to check connection or reconnect
+const btnServerConfig = document.getElementById('btnServerConfig');
+if (btnServerConfig) {
+  btnServerConfig.addEventListener('click', () => {
+    if (socket && socket.connected) {
+      showToast('Connected to Cloud Server (Active)', 'success');
+    } else {
+      showToast('Reconnecting to Cloud Server...', 'info');
+      initSocket();
+    }
+  });
 }
 
 // Render Free-Tier Sleep Protection:
@@ -441,15 +454,6 @@ btnSubmitCreateRoom.addEventListener('click', () => {
     socket = initSocket();
   }
 
-  if (!socket) {
-    showToast('Connecting to cloud server... Please wait a few seconds.', 'warning');
-    return;
-  }
-
-  if (!socket.connected) {
-    showToast('Connecting to Render cloud server... Server may be waking up.', 'info');
-  }
-
   const origHTML = btnSubmitCreateRoom.innerHTML;
   btnSubmitCreateRoom.disabled = true;
   btnSubmitCreateRoom.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Launching Room...';
@@ -457,7 +461,7 @@ btnSubmitCreateRoom.addEventListener('click', () => {
   const timeout = setTimeout(() => {
     btnSubmitCreateRoom.disabled = false;
     btnSubmitCreateRoom.innerHTML = origHTML;
-    showToast('Cloud server is still spinning up (free servers can take 20-30s on first request). Please try again in a moment.', 'warning');
+    showToast('Cloud server is still spinning up. Please try again in a moment.', 'warning');
   }, 15000);
 
   const initialPurse = document.getElementById('selectInitialPurse').value;
@@ -465,25 +469,42 @@ btnSubmitCreateRoom.addEventListener('click', () => {
   const maxSquadSize = document.getElementById('inputMaxSquad').value;
   const maxOverseas = document.getElementById('inputMaxOverseas').value;
 
-  socket.emit('create_room', {
-    initialPurse,
-    retentionsAllowed,
-    maxSquadSize,
-    maxOverseas
-  }, (res) => {
-    clearTimeout(timeout);
-    btnSubmitCreateRoom.disabled = false;
-    btnSubmitCreateRoom.innerHTML = origHTML;
+  const performCreate = () => {
+    socket.emit('create_room', {
+      initialPurse,
+      retentionsAllowed,
+      maxSquadSize,
+      maxOverseas
+    }, (res) => {
+      clearTimeout(timeout);
+      btnSubmitCreateRoom.disabled = false;
+      btnSubmitCreateRoom.innerHTML = origHTML;
 
-    if (res && res.success) {
-      currentRoom = res.roomState;
-      isHost = true;
-      setupLobby();
-      showToast(`Room created! Code: ${res.roomCode}`, 'success');
+      if (res && res.success) {
+        currentRoom = res.roomState;
+        isHost = true;
+        setupLobby();
+        showToast(`Room created! Code: ${res.roomCode}`, 'success');
+      } else {
+        showToast(res ? res.error : 'Failed to create room', 'error');
+      }
+    });
+  };
+
+  if (socket && socket.connected) {
+    performCreate();
+  } else {
+    showToast('Connecting to cloud server... Launching room upon connection.', 'info');
+    if (!socket) socket = initSocket();
+    if (socket) {
+      socket.once('connect', performCreate);
     } else {
-      showToast(res ? res.error : 'Failed to create room', 'error');
+      clearTimeout(timeout);
+      btnSubmitCreateRoom.disabled = false;
+      btnSubmitCreateRoom.innerHTML = origHTML;
+      showToast('Could not establish connection to cloud server.', 'error');
     }
-  });
+  }
 });
 
 // Join Room
@@ -493,11 +514,6 @@ btnSubmitJoinRoom.addEventListener('click', () => {
 
   if (!socket) {
     socket = initSocket();
-  }
-
-  if (!socket) {
-    showToast('Connecting to cloud server... Please wait a few seconds.', 'warning');
-    return;
   }
 
   const origHTML = btnSubmitJoinRoom.innerHTML;
@@ -510,20 +526,37 @@ btnSubmitJoinRoom.addEventListener('click', () => {
     showToast('Server response timed out. Please check your room code or connection.', 'warning');
   }, 12000);
 
-  socket.emit('join_room', { roomCode }, (res) => {
-    clearTimeout(timeout);
-    btnSubmitJoinRoom.disabled = false;
-    btnSubmitJoinRoom.innerHTML = origHTML;
+  const performJoin = () => {
+    socket.emit('join_room', { roomCode }, (res) => {
+      clearTimeout(timeout);
+      btnSubmitJoinRoom.disabled = false;
+      btnSubmitJoinRoom.innerHTML = origHTML;
 
-    if (res && res.success) {
-      currentRoom = res.roomState;
-      isHost = currentRoom.hostId === socket.id;
-      setupLobby();
-      showToast(`Joined room [${roomCode}]!`, 'success');
+      if (res && res.success) {
+        currentRoom = res.roomState;
+        isHost = currentRoom.hostId === socket.id;
+        setupLobby();
+        showToast(`Joined room [${roomCode}]!`, 'success');
+      } else {
+        showToast(res ? res.error : 'Room not found', 'error');
+      }
+    });
+  };
+
+  if (socket && socket.connected) {
+    performJoin();
+  } else {
+    showToast('Connecting to cloud server... Entering room upon connection.', 'info');
+    if (!socket) socket = initSocket();
+    if (socket) {
+      socket.once('connect', performJoin);
     } else {
-      showToast(res ? res.error : 'Room not found', 'error');
+      clearTimeout(timeout);
+      btnSubmitJoinRoom.disabled = false;
+      btnSubmitJoinRoom.innerHTML = origHTML;
+      showToast('Could not establish connection to cloud server.', 'error');
     }
-  });
+  }
 });
 
 // Copy Room Code
