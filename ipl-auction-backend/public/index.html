@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>IPL Mega Auction Simulator</title>
+  
+  <!-- Cache Prevention Meta -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <!-- Performance & DNS Preconnects for instant mobile loading -->
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.socket.io" crossorigin />
+  <link rel="dns-prefetch" href="https://ipl-auction-backend-83zt.onrender.com" />
+
+  <!-- PWA Meta -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#FDB913" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            iplGold: '#FDB913',
+            iplNavy: '#0F172A',
+            iplCard: '#1E293B',
+            iplAccent: '#F59E0B'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="/styles.css?v=5.0" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans overflow-x-hidden">
+
+  <!-- TOP APP BAR -->
+  <header class="bg-slate-900/90 border-b border-slate-800 backdrop-blur sticky top-0 z-30 px-3 sm:px-4 py-2.5 flex items-center justify-between shadow-lg">
+    <div class="flex items-center space-x-2">
+      <span class="text-2xl">🏏</span>
+      <div>
+        <h1 class="text-sm sm:text-base font-extrabold tracking-wider bg-gradient-to-r from-amber-400 to-yellow-200 bg-clip-text text-transparent uppercase">
+          IPL Mega Auction
+        </h1>
+        <div id="roomBadge" class="hidden text-xs text-slate-400 font-mono">
+          ROOM: <span id="currentRoomCode" class="text-amber-400 font-bold tracking-widest">-----</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active User Franchise & Controls -->
+    <div class="flex items-center space-x-2">
+      <!-- Server Connection Status & Cloud URL Config -->
+      <button id="btnServerConfig" title="Server Cloud Connection" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 flex items-center space-x-1.5 cursor-pointer">
+        <span id="serverStatusDot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+        <span id="serverStatusLabel" class="hidden sm:inline text-[11px] font-semibold text-amber-300">Connecting...</span>
+      </button>
+
+      <!-- Voice Commentator Toggle -->
+      <button id="toggleVoiceBtn" title="Voice Commentator" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs border border-slate-700 flex items-center space-x-1">
+        <i id="voiceIcon" class="fa-solid fa-volume-high"></i>
+        <span class="hidden sm:inline text-[11px] font-semibold text-slate-300">Voice ON</span>
+      </button>
+
+      <!-- User Franchise Pill -->
+      <div id="userFranchisePill" class="hidden items-center space-x-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-semibold">
+        <img id="userFranchiseLogo" src="/logos/CSK.svg" alt="Team" class="w-5 h-5 object-contain" />
+        <span id="userFranchiseTag" class="text-amber-400 font-bold">CSK</span>
+        <span id="userPurseDisplay" class="text-emerald-400 font-mono">₹100 Cr</span>
+      </div>
+
+      <!-- Teams Drawer Toggle -->
+      <button id="toggleDrawerBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition flex items-center space-x-1.5">
+        <i class="fa-solid fa-users"></i>
+        <span class="hidden sm:inline">Teams</span>
+        <span id="teamsCountBadge" class="bg-amber-500 text-slate-950 px-1.5 py-0.2 rounded-full font-bold text-[10px]">0</span>
+      </button>
+
+      <!-- Logs Drawer Toggle -->
+      <button id="toggleLogsBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 transition">
+        <i class="fa-solid fa-list-check"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWPORT CONTAINER -->
+  <main class="flex-1 flex flex-col max-w-5xl w-full mx-auto p-3 sm:p-5 relative">
+    
+    <!-- TOAST NOTIFICATIONS -->
+    <div id="toastContainer" class="fixed top-16 right-4 left-4 sm:left-auto sm:w-96 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+    <!-- VIEW 1: WELCOME / ROOM CREATION / JOIN -->
+    <div id="viewWelcome" class="flex-1 flex flex-col items-center justify-center py-6 text-center">
+      <div class="max-w-md w-full bg-slate-900/80 p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-2xl backdrop-blur-xl">
+        <div class="inline-flex p-4 rounded-full bg-amber-500/10 text-amber-400 text-4xl mb-4">
+          <i class="fa-solid fa-gavel animate-bounce"></i>
+        </div>
+        <h2 class="text-2xl font-black text-white uppercase tracking-wider mb-1">
+          IPL Auction Simulator
+        </h2>
+        <p class="text-xs sm:text-sm text-slate-400 mb-4">
+          Official IPL teams, real player jerseys, commentary sound effects & zero-database multiplayer!
+        </p>
+
+        <!-- Connection Mode Toggle: Cloud (Render) vs Localhost / Wi-Fi -->
+        <div class="mb-4 p-3 bg-slate-950/90 rounded-2xl border border-slate-800 text-left">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Connection Mode</span>
+            <span id="activeModeBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              Cloud Live
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button 
+              type="button" 
+              id="btnModeCloud" 
+              class="py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-amber-500 text-slate-950 border-amber-500 shadow-md">
+              <i class="fa-solid fa-cloud text-xs"></i>
+              <span>Cloud (Render)</span>
+            </button>
+            <button 
+              type="button" 
+              id="btnModeLocal" 
+              class="py-2 px-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border flex items-center justify-center space-x-1.5 bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700">
+              <i class="fa-solid fa-laptop text-xs"></i>
+              <span>Localhost / Wi-Fi</span>
+            </button>
+          </div>
+          <div id="localModeGuide" class="hidden mt-2 p-2 bg-slate-900/90 rounded-xl text-[11px] text-slate-300 border border-slate-800 space-y-1">
+            <div class="text-amber-400 font-bold flex items-center space-x-1">
+              <i class="fa-solid fa-circle-check"></i>
+              <span>Offline / Localhost Mode Active</span>
+            </div>
+            <p class="text-[10px] text-slate-400 leading-relaxed">
+              No cloud server needed! Connects directly to local server on port 3000. Mobile devices on your home Wi-Fi can join instantly.
+            </p>
+          </div>
+        </div>
+
+        <!-- Manager Name -->
+        <div class="text-left mb-4">
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Manager / Player Name</label>
+          <input 
+            type="text" 
+            id="inputManagerName" 
+            placeholder="e.g. Captain Cool" 
+            value="Player 1"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition" 
+          />
+        </div>
+
+        <!-- Options: Create or Join -->
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <button id="btnTabCreate" class="py-2.5 rounded-xl font-bold text-xs uppercase transition border bg-amber-500 text-slate-950 border-amber-500">
+            Create Room
+          </button>
+          <button id="btnTabJoin" class="py-2.5 rounded-xl font-bold text-xs uppercase transition border bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700">
+            Join Room
+          </button>
+        </div>
+
+        <!-- Create Room Subform -->
+        <div id="formCreateRoom" class="space-y-4 text-left">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-slate-400 font-semibold mb-1">Initial Purse</label>
+              <select id="selectInitialPurse" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white">
+                <option value="1000000000" selected>₹100 Cr (Standard)</option>
+                <option value="1200000000">₹120 Cr (Mega)</option>
+                <option value="900000000">₹90 Cr (Compact)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 font-semibold mb-1">Retentions Allowed</label>
+              <select id="selectRetentionsAllowed" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white">
+                <option value="2" selected>2 Players (Max)</option>
+                <option value="4">4 Players</option>
+                <option value="1">1 Player</option>
+                <option value="0">0 (Open Pool)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-slate-400 font-semibold mb-1">Max Squad Size</label>
+              <input id="inputMaxSquad" type="number" value="25" min="15" max="25" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 font-semibold mb-1">Max Overseas</label>
+              <input id="inputMaxOverseas" type="number" value="8" min="4" max="8" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white" />
+            </div>
+          </div>
+
+          <button id="btnSubmitCreateRoom" class="w-full py-3 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black rounded-xl text-sm uppercase tracking-wider shadow-lg shadow-amber-500/20 transition active:scale-[0.98]">
+            <i class="fa-solid fa-plus-circle mr-1.5"></i> Launch Auction Room
+          </button>
+        </div>
+
+        <!-- Join Room Subform -->
+        <div id="formJoinRoom" class="hidden space-y-4 text-left">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Enter 5-Letter Room Code</label>
+            <input 
+              type="text" 
+              id="inputJoinRoomCode" 
+              placeholder="e.g. 7X9KQ" 
+              maxlength="5"
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-center text-xl font-mono uppercase tracking-widest text-amber-400 focus:outline-none focus:border-amber-400" 
+            />
+          </div>
+          <button id="btnSubmitJoinRoom" class="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-black rounded-xl text-sm uppercase tracking-wider shadow-lg transition active:scale-[0.98]">
+            <i class="fa-solid fa-door-open mr-1.5"></i> Enter Room
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 2: LOBBY, FRANCHISE SELECTION & RETENTIONS -->
+    <div id="viewLobby" class="hidden flex-1 flex flex-col space-y-4">
+      <!-- Room Info Header -->
+      <div class="glass-panel rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div class="text-xs uppercase tracking-wider text-slate-400 font-medium">Lobby Waiting Room</div>
+          <div class="text-lg font-black text-white flex items-center space-x-2">
+            <span>Invite Code:</span>
+            <span id="lobbyRoomCode" class="text-amber-400 font-mono tracking-widest bg-slate-900 px-2 py-0.5 rounded border border-slate-700 text-base">-----</span>
+            <button id="btnCopyCode" title="Copy code" class="text-slate-400 hover:text-white text-xs px-2 py-1 bg-slate-800 rounded">
+              <i class="fa-regular fa-copy"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <div id="hostNotice" class="text-xs text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
+            <i class="fa-solid fa-crown mr-1"></i> You are the Host
+          </div>
+          <button id="btnStartAuctionHost" class="hidden px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 transition active:scale-95">
+            <i class="fa-solid fa-play mr-1"></i> Start Auction
+          </button>
+        </div>
+      </div>
+
+      <!-- Select Franchise Grid (Official Logos) -->
+      <div class="glass-panel rounded-2xl p-4 sm:p-5">
+        <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider mb-1 flex items-center justify-between">
+          <span>Official IPL Franchises</span>
+          <span class="text-xs text-slate-400 font-normal">Select your team</span>
+        </h3>
+        <p class="text-xs text-slate-400 mb-4">Click a team to claim ownership and unlock your franchise's real player retention roster.</p>
+        
+        <div id="franchiseGrid" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <!-- Injected by JS with official logos -->
+        </div>
+      </div>
+
+      <!-- YOUR FRANCHISE & RETENTION PORTAL BANNER -->
+      <div id="retentionBanner" class="hidden p-4 sm:p-5 rounded-2xl glass-panel border-2 border-amber-500/50 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/5 to-transparent">
+        <div class="flex items-center space-x-4">
+          <div class="w-16 h-16 p-2 rounded-2xl bg-slate-900 border border-slate-700 flex items-center justify-center flex-shrink-0">
+            <img id="bannerTeamLogo" src="" alt="Team Logo" class="w-full h-full object-contain filter drop-shadow" />
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-400 text-slate-950">YOUR FRANCHISE</span>
+              <span id="bannerRetentionsCountBadge" class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">0/2 Retained</span>
+            </div>
+            <h4 id="bannerTeamName" class="text-base sm:text-lg font-black text-white uppercase tracking-wide mt-0.5">
+              Royal Challengers Bengaluru
+            </h4>
+            <p class="text-xs text-slate-300 mt-0.5">
+              Available Auction Purse: <b id="bannerPurseDisplay" class="text-emerald-400 font-mono">₹100.00 Cr</b> • Host allows <b id="bannerMaxRetentions" class="text-amber-400">2</b> core retentions.
+            </p>
+            <div id="bannerRetainedNames" class="text-xs text-amber-300 font-medium mt-1">
+              No players retained yet.
+            </div>
+          </div>
+        </div>
+
+        <button id="btnOpenRetentionModal" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-xl shadow-amber-500/20 transition active:scale-95 flex items-center justify-center space-x-2 flex-shrink-0">
+          <i class="fa-solid fa-user-check text-sm"></i>
+          <span>Pick / Edit Retentions</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- VIEW 3: LIVE AUCTION FLOOR -->
+    <div id="viewAuction" class="hidden flex-1 flex flex-col justify-between space-y-4">
+      
+      <!-- TOP: PLAYER CARD (Real Image + Jersey + Stats) -->
+      <div class="glass-panel rounded-3xl p-4 sm:p-6 shadow-2xl relative overflow-hidden border border-slate-700/60">
+        <div id="cardAmbientGlow" class="absolute -top-24 -left-24 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <!-- Top Player Meta Bar -->
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+            <span id="playerRoleBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
+              Batter
+            </span>
+            <span id="playerCountryBadge" class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+              🇮🇳 India
+            </span>
+            <span id="playerTierBadge" class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300">
+              Marquee Set
+            </span>
+          </div>
+
+          <!-- Timer & Host Controls -->
+          <div class="flex items-center space-x-2">
+            <!-- Timer (Idle until first bid!) -->
+            <div id="timerContainer" class="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-slate-900 border border-slate-700">
+              <i class="fa-regular fa-clock text-amber-400 text-sm"></i>
+              <span id="auctionTimer" class="font-mono text-xl sm:text-2xl font-black text-slate-400">--</span>
+              <span class="text-[10px] text-slate-400">s</span>
+            </div>
+
+            <!-- Host Skip Player -->
+            <button id="btnHostSkipPlayer" title="Host: Skip Player" class="hidden px-3 py-1.5 rounded-xl bg-rose-900/60 hover:bg-rose-800 text-rose-200 text-xs border border-rose-700 font-bold items-center space-x-1">
+              <i class="fa-solid fa-forward-step"></i>
+              <span class="hidden sm:inline">Skip</span>
+            </button>
+
+            <!-- Host Undo Skip Player -->
+            <button id="btnHostUndoSkipPlayer" title="Host: Undo Skip" class="hidden px-3 py-1.5 rounded-xl bg-amber-900/60 hover:bg-amber-800 text-amber-200 text-xs border border-amber-700 font-bold items-center space-x-1">
+              <i class="fa-solid fa-rotate-left"></i>
+              <span class="hidden sm:inline">Undo Skip</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Center Player Profile -->
+        <div class="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 my-2">
+          <!-- Player Headshot with Jersey / Watermarks -->
+          <div class="relative w-32 h-32 sm:w-40 sm:h-40 rounded-2xl overflow-hidden border-2 border-slate-700 bg-slate-900 shadow-2xl flex-shrink-0">
+            <img id="playerImage" src="" alt="Player" class="w-full h-full object-cover object-top" onerror="this.src='/icons/player_avatar.svg'" />
+            <div id="playerSoldWatermark" class="hidden absolute inset-0 bg-red-600/85 flex items-center justify-center font-black text-2xl uppercase tracking-widest text-white transform -rotate-12">
+              SOLD
+            </div>
+            <div id="playerUnsoldWatermark" class="hidden absolute inset-0 bg-slate-800/90 flex items-center justify-center font-black text-xl uppercase tracking-widest text-slate-300 transform -rotate-12">
+              UNSOLD
+            </div>
+          </div>
+
+          <!-- Player Details & Real Stats -->
+          <div class="flex-1 text-center sm:text-left">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1">
+              <h2 id="playerName" class="text-2xl sm:text-3xl font-black text-white tracking-wide">
+                Virat Kohli
+              </h2>
+              <div id="playerBatBowlStyle" class="text-xs text-slate-400 font-mono">
+                Right hand Bat • Right arm Medium
+              </div>
+            </div>
+
+            <div class="text-xs text-slate-400 mb-3 flex items-center justify-center sm:justify-start space-x-2">
+              <span>Franchise Origin: <b id="playerOriginalTeam" class="text-slate-200">RCB</b></span>
+              <span>•</span>
+              <span>Base Price: <b id="playerBasePrice" class="text-emerald-400 font-mono">₹2.00 Cr</b></span>
+            </div>
+
+            <!-- Stats Grid -->
+            <div id="playerStatsGrid" class="grid grid-cols-4 gap-2 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-center">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Matches</div>
+                <div id="stat1" class="text-xs sm:text-sm font-bold text-white font-mono">252</div>
+              </div>
+              <div>
+                <div id="statLabel2" class="text-[10px] text-slate-400 uppercase font-semibold">Runs</div>
+                <div id="stat2" class="text-xs sm:text-sm font-bold text-white font-mono">8004</div>
+              </div>
+              <div>
+                <div id="statLabel3" class="text-[10px] text-slate-400 uppercase font-semibold">Avg / Eco</div>
+                <div id="stat3" class="text-xs sm:text-sm font-bold text-white font-mono">38.67</div>
+              </div>
+              <div>
+                <div id="statLabel4" class="text-[10px] text-slate-400 uppercase font-semibold">SR / Wkts</div>
+                <div id="stat4" class="text-xs sm:text-sm font-bold text-white font-mono">131.97</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CURRENT BID DISPLAY -->
+        <div class="mt-4 pt-3 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900/50 -mx-4 -mb-4 sm:-mx-6 sm:-mb-6 p-4 rounded-b-2xl">
+          <div>
+            <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400">Current Standing Bid</div>
+            <div id="currentBidAmount" class="text-3xl sm:text-4xl font-black text-amber-400 font-mono tracking-tight animate-bid-pulse">
+              ₹2.00 Cr
+            </div>
+          </div>
+
+          <!-- Highest Bidder Franchise Tag with Official Logo -->
+          <div class="flex items-center space-x-3">
+            <div class="text-right">
+              <div class="text-[10px] uppercase font-bold tracking-wider text-slate-400">Leading Bidder</div>
+              <div id="highestBidderName" class="text-xs font-semibold text-slate-300">
+                Waiting for first bid (Opens at Base Price)
+              </div>
+            </div>
+            <div id="highestBidderBadge" class="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center p-1.5 shadow-lg">
+              <span id="highestBidderPlaceholderIcon" class="text-xl">🔨</span>
+              <img id="highestBidderLogoImg" src="" alt="Bidder" class="w-full h-full object-contain hidden" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CENTER-BOTTOM: ACTION AREA -->
+      <div class="flex flex-col items-center justify-center py-2 space-y-3">
+        <!-- Bid Status Notice -->
+        <div id="bidStatusNotice" class="text-xs font-semibold text-rose-400 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20 hidden">
+        </div>
+
+        <!-- Action Buttons Container (BID + FOLD) -->
+        <div class="w-full max-w-lg flex flex-col sm:flex-row gap-3">
+          <!-- MASSIVE BID BUTTON -->
+          <button 
+            id="btnPlaceBid" 
+            class="flex-1 py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-lg sm:text-2xl uppercase tracking-wider shadow-2xl bid-glow transition-all transform active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <i class="fa-solid fa-gavel text-lg sm:text-xl"></i>
+            <span id="bidButtonText">BID (Base ₹2.00 Cr)</span>
+          </button>
+
+          <!-- FOLD / PASS BUTTON -->
+          <button 
+            id="btnFoldPlayer" 
+            class="sm:w-44 py-3.5 sm:py-5 px-4 rounded-2xl bg-slate-900 border-2 border-slate-700 hover:border-rose-500/60 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 font-black text-sm sm:text-base uppercase tracking-wider transition-all transform active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center space-x-2 cursor-pointer shadow-lg"
+          >
+            <i class="fa-solid fa-hand text-rose-400"></i>
+            <span id="foldButtonText">FOLD</span>
+          </button>
+        </div>
+
+        <!-- Consensus Fold Progress Bar -->
+        <div id="foldStatusBar" class="w-full max-w-lg flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-400">
+          <div class="flex items-center space-x-1.5">
+            <i class="fa-solid fa-users-slash text-amber-400 text-xs"></i>
+            <span>Consensus Fold:</span>
+            <span id="foldCountDisplay" class="font-bold text-white font-mono">0/0 Teams</span>
+          </div>
+          <span id="foldStatusHint" class="text-slate-500 text-[10px]">Instant sell if all fold</span>
+        </div>
+
+        <!-- Current Team Quick Bar -->
+        <div class="flex items-center space-x-4 text-xs text-slate-400">
+          <div>Your Purse: <span id="myPurseAmount" class="font-mono font-bold text-emerald-400">₹100.00 Cr</span></div>
+          <div>•</div>
+          <div>Squad: <span id="mySquadCount" class="font-bold text-white">0/25</span></div>
+          <div>•</div>
+          <div>Overseas: <span id="myOverseasCount" class="font-bold text-blue-400">0/8</span></div>
+        </div>
+      </div>
+
+      <!-- RECENT ACTION STREAM -->
+      <div class="glass-panel rounded-2xl p-3 flex items-center space-x-3 overflow-hidden text-xs">
+        <span class="text-amber-400 font-bold uppercase tracking-wider text-[10px] flex-shrink-0 flex items-center">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-1.5 animate-ping"></span>
+          Live Feed:
+        </span>
+        <div id="liveFeedTicker" class="truncate text-slate-300 font-mono">
+          Waiting for bids...
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 4: AUCTION FINISHED -->
+    <div id="viewFinished" class="hidden flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4">
+      <div class="text-5xl">🏆</div>
+      <h2 class="text-3xl font-black text-amber-400 uppercase tracking-wider">
+        IPL Mega Auction Completed!
+      </h2>
+      <p class="text-slate-400 max-w-md text-sm">
+        All player sets have concluded. Inspect squad compositions, player wages, and team balance.
+      </p>
+      <button id="btnViewFinalSquads" class="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-sm uppercase">
+        <i class="fa-solid fa-users mr-2"></i> Inspect All Franchises
+      </button>
+    </div>
+
+  </main>
+
+  <!-- SIDEBAR DRAWER: TEAMS & SQUADS DASHBOARD -->
+  <aside id="teamsDrawer" class="fixed inset-y-0 right-0 w-full sm:w-96 bg-slate-900 border-l border-slate-800 z-40 transform translate-x-full transition-transform duration-300 shadow-2xl flex flex-col pointer-events-none">
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-trophy text-amber-400"></i>
+        <h3 class="font-bold text-sm text-white uppercase tracking-wider">Franchise Leaderboard</h3>
+      </div>
+      <button id="closeTeamsDrawerBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+    </div>
+
+    <!-- Teams List -->
+    <div id="drawerTeamsList" class="flex-1 overflow-y-auto p-4 space-y-3">
+      <!-- Injected by JS -->
+    </div>
+  </aside>
+
+  <!-- SIDEBAR DRAWER: FULL LOGS FEED -->
+  <aside id="logsDrawer" class="fixed inset-y-0 right-0 w-full sm:w-96 bg-slate-900 border-l border-slate-800 z-40 transform translate-x-full transition-transform duration-300 shadow-2xl flex flex-col pointer-events-none">
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-timeline text-amber-400"></i>
+        <h3 class="font-bold text-sm text-white uppercase tracking-wider">Auction Event Log</h3>
+      </div>
+      <button id="closeLogsDrawerBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+    </div>
+
+    <div id="fullLogsFeed" class="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs text-slate-300">
+      <!-- Injected by JS -->
+    </div>
+  </aside>
+
+  <!-- BACKDROP OVERLAY FOR DRAWERS -->
+  <div id="drawerOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 hidden transition-opacity"></div>
+
+  <!-- MODAL: SQUAD DETAILS INSPECTOR -->
+  <div id="squadModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md hidden">
+    <div class="glass-panel w-full max-w-2xl max-h-[85vh] rounded-3xl p-5 flex flex-col border border-slate-700 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center space-x-3">
+          <img id="modalTeamLogoImg" src="" alt="Logo" class="w-10 h-10 object-contain" />
+          <div>
+            <h3 id="modalTeamName" class="text-base font-bold text-white">Chennai Super Kings</h3>
+            <div id="modalTeamPurse" class="text-xs text-emerald-400 font-mono">Purse: ₹85.00 Cr</div>
+          </div>
+        </div>
+        <button id="closeSquadModalBtn" class="p-2 text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto my-3 pr-1">
+        <div id="modalSquadList" class="space-y-2">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: DEDICATED FRANCHISE RETENTION PORTAL -->
+  <div id="retentionModal" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md hidden">
+    <div class="glass-panel w-full max-w-4xl max-h-[92vh] rounded-3xl p-4 sm:p-6 flex flex-col border-2 border-amber-500/40 shadow-2xl bg-slate-950/95">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 sm:pb-4 border-b border-slate-800 gap-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-12 h-12 sm:w-14 sm:h-14 p-1.5 rounded-2xl bg-slate-900 border border-slate-700 flex items-center justify-center flex-shrink-0">
+            <img id="modalRetentionLogo" src="" alt="Team Logo" class="w-full h-full object-contain filter drop-shadow" />
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 id="modalRetentionTeamName" class="text-base sm:text-lg font-black text-white uppercase tracking-wider">Royal Challengers Bengaluru</h3>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">RETENTION PORTAL</span>
+            </div>
+            <p class="text-xs text-slate-400">
+              Host allowed up to <b id="modalMaxRetentions" class="text-amber-400 font-bold">2</b> core retentions. Retained players stay on your roster and won't go into auction.
+            </p>
+          </div>
+        </div>
+        <button id="closeRetentionModalBtn" class="p-2.5 text-slate-400 hover:text-white rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Live Financial Impact Preview Bar -->
+      <div class="my-3 p-3 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <div><span class="text-slate-400">Initial Purse:</span> <span id="modalInitialPurse" class="font-bold text-white font-mono">₹100.00 Cr</span></div>
+          <div><span class="text-slate-400">Retention Deductions:</span> <span id="modalDeductionPurse" class="font-bold text-rose-400 font-mono">-₹0.00 Cr</span></div>
+          <div><span class="text-slate-400">Starting Auction Purse:</span> <span id="modalRemainingPurse" class="font-black text-emerald-400 font-mono">₹100.00 Cr</span></div>
+        </div>
+        <div id="modalSelectedCountBadge" class="px-3 py-1 rounded-xl bg-amber-400/20 text-amber-300 font-bold border border-amber-400/40 text-xs">
+          Selected: 0/2
+        </div>
+      </div>
+
+      <!-- Filters & Search Toolbar -->
+      <div class="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div id="retentionFilterChips" class="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
+          <button data-filter="ALL" class="retention-filter-btn px-3 py-1 rounded-xl text-xs font-black bg-amber-400 text-slate-950 shadow-md">All (<span id="modalCountAll">27</span>)</button>
+          <button data-filter="Batter" class="retention-filter-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800">Batters</button>
+          <button data-filter="Bowler" class="retention-filter-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800">Bowlers</button>
+          <button data-filter="All-Rounder" class="retention-filter-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800">All-Rounders</button>
+          <button data-filter="Wicketkeeper" class="retention-filter-btn px-3 py-1 rounded-xl text-xs font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800">Wicketkeepers</button>
+        </div>
+
+        <div class="relative w-full sm:w-60">
+          <input 
+            id="searchRetentionPlayer" 
+            type="text" 
+            placeholder="Search star by name..." 
+            class="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400 placeholder-slate-500" 
+          />
+          <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-xs text-slate-500"></i>
+        </div>
+      </div>
+
+      <!-- Player Cards Scrollable Container -->
+      <div class="flex-1 overflow-y-auto pr-1 my-1 min-h-[220px]">
+        <div id="modalRetentionPlayersGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <!-- Dynamically populated with real headshots & stats -->
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
+        <button id="btnSkipRetentions" class="px-4 py-2.5 text-xs font-bold text-slate-400 hover:text-white rounded-xl hover:bg-slate-900 transition">
+          Clear / Skip Retentions
+        </button>
+        <button id="btnSaveRetentionsModal" class="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 transition active:scale-95 flex items-center space-x-1.5">
+          <i class="fa-solid fa-lock"></i>
+          <span>Save & Lock Retentions</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js?v=6.0"></script>
+</body>
+</html>

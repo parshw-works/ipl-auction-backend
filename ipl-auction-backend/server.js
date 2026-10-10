@@ -728,9 +728,20 @@ app.get('/api/franchise-players/:teamId', (req, res) => {
   res.json(players);
 });
 
-// SPA fallback
+// Safe root / SPA fallback
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.json({
+    status: 'ok',
+    service: 'IPL Auction Live Backend Server',
+    message: 'Backend is active and ready for Socket.IO connections.',
+    activeRooms: rooms.size,
+    totalPlayersLoaded: playersDataset.length,
+    timestamp: new Date().toISOString()
+  });
 });
 
 const PORT = process.env.PORT || 3000;
