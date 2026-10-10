@@ -1,69 +1,308 @@
-/* Core base styles */
-body {
-  background-color: #020617;
-  color: #f8fafc;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  -webkit-tap-highlight-color: transparent;
+/* ==========================================================================
+   IPL MEGA AUCTION SIMULATOR — BROADCAST ESPORTS HUD STYLES
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800;900&family=Orbitron:wght@600;700;800;900&family=Rajdhani:wght@500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --bg-void: #05070e;
+  --card-glass: rgba(13, 19, 36, 0.72);
+  --card-glass-elevated: rgba(18, 26, 50, 0.88);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glass-bright: rgba(255, 255, 255, 0.18);
+  
+  --gold-glow: #ffb800;
+  --gold-end: #ff8a00;
+  --laser-cyan: #00f5ff;
+  --adrenaline-crimson: #ff1e56;
+  --victory-emerald: #00ffa3;
+  
+  --font-display: 'Rajdhani', 'Orbitron', -apple-system, sans-serif;
+  --font-mono: 'Space Mono', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
 }
 
-/* Custom scrollbars */
+/* Base Body & Arena Perspective Canvas */
+body {
+  background-color: var(--bg-void);
+  color: #f1f5f9;
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Atmospheric 3D Perspective Grid & Animated Dust Motes */
+.arena-background {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.arena-background::before {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  background-image: 
+    linear-gradient(rgba(0, 245, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 245, 255, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  transform: perspective(600px) rotateX(60deg) translateY(200px);
+  animation: gridMove 25s linear infinite;
+  opacity: 0.6;
+}
+
+.arena-background::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: 
+    radial-gradient(circle at 50% 10%, rgba(255, 184, 0, 0.08) 0%, transparent 60%),
+    radial-gradient(circle at 10% 90%, rgba(0, 245, 255, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 90% 90%, rgba(255, 30, 86, 0.05) 0%, transparent 50%),
+    linear-gradient(180deg, rgba(5, 7, 14, 0.2) 0%, rgba(5, 7, 14, 0.95) 100%);
+}
+
+@keyframes gridMove {
+  0% { transform: perspective(600px) rotateX(60deg) translateY(0); }
+  100% { transform: perspective(600px) rotateX(60deg) translateY(60px); }
+}
+
+/* Franchise Dynamic Aura */
+#franchiseAuraLayer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  transition: background 0.8s ease-in-out, opacity 0.8s ease;
+  opacity: 0.75;
+}
+
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(8, 12, 24, 0.6);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.4);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.6);
+  background: rgba(255, 184, 0, 0.5);
 }
 
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.75);
+/* Broadcast Glass Panels */
+.esport-panel {
+  background: var(--card-glass);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-glass);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.glass-card {
-  background: rgba(30, 41, 59, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.esport-panel-elevated {
+  background: var(--card-glass-elevated);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass-bright);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65), 0 0 25px rgba(0, 0, 0, 0.8);
 }
 
-/* Pulse animation for active bidding */
-@keyframes bid-pulse {
+/* Neon Glow Accents */
+.glow-gold {
+  filter: drop-shadow(0 0 10px rgba(255, 184, 0, 0.5));
+}
+.glow-cyan {
+  filter: drop-shadow(0 0 10px rgba(0, 245, 255, 0.5));
+}
+.glow-crimson {
+  filter: drop-shadow(0 0 10px rgba(255, 30, 86, 0.6));
+}
+.glow-emerald {
+  filter: drop-shadow(0 0 10px rgba(0, 255, 163, 0.5));
+}
+
+/* Header Display Font Utility */
+.font-display {
+  font-family: var(--font-display);
+}
+.font-mono-data {
+  font-family: var(--font-mono);
+}
+
+/* Electric Gold Foil Text */
+.gold-foil-text {
+  background: linear-gradient(135deg, #ffffff 0%, #ffde59 35%, #ff9900 70%, #ff7b00 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 12px rgba(255, 184, 0, 0.35));
+}
+
+.cyan-foil-text {
+  background: linear-gradient(135deg, #ffffff 0%, #a5f3fc 40%, #00f5ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 12px rgba(0, 245, 255, 0.35));
+}
+
+/* Animated Shimmer Line for Master Buttons */
+.shimmer-btn {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: skewX(-20deg);
+  animation: shimmerSweep 3.5s infinite;
+}
+
+@keyframes shimmerSweep {
+  0% { left: -100%; }
+  35% { left: 200%; }
+  100% { left: 200%; }
+}
+
+/* Tactile 3D Button Depression */
+.tactile-btn:active {
+  transform: translateY(3px) scale(0.98);
+}
+
+/* Screen Micro-Shake on Heavy Bid / Hammer Drop */
+@keyframes screenShake {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-3px, 2px); }
+  40% { transform: translate(3px, -2px); }
+  60% { transform: translate(-2px, -2px); }
+  80% { transform: translate(2px, 2px); }
+  100% { transform: translate(0, 0); }
+}
+
+.shake-active {
+  animation: screenShake 0.25s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* Floating Currency Feedback (+₹25 L / +₹1 Cr) */
+@keyframes floatUpFade {
+  0% { opacity: 1; transform: translateY(0) scale(0.9); }
+  50% { opacity: 1; transform: translateY(-24px) scale(1.15); }
+  100% { opacity: 0; transform: translateY(-48px) scale(1.2); }
+}
+
+.float-chip-anim {
+  animation: floatUpFade 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Bid Amount Punch Scale Animation */
+@keyframes bidPunch {
   0% { transform: scale(1); }
-  50% { transform: scale(1.03); }
+  40% { transform: scale(1.22); filter: drop-shadow(0 0 25px rgba(255, 184, 0, 0.9)); }
   100% { transform: scale(1); }
 }
-
-.animate-bid-pulse {
-  animation: bid-pulse 0.3s ease-in-out;
+.animate-bid-punch {
+  animation: bidPunch 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-/* Hammer animation */
-@keyframes hammer-hit {
-  0% { transform: rotate(0deg); }
-  30% { transform: rotate(-35deg); }
-  60% { transform: rotate(15deg); }
-  100% { transform: rotate(0deg); }
+/* Holographic Card Shimmer for Marquee Stars */
+@keyframes holographicShine {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-.animate-hammer {
-  animation: hammer-hit 0.5s ease-in-out;
+.holographic-foil {
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 215, 0, 0.22) 45%,
+    rgba(0, 245, 255, 0.25) 55%,
+    transparent 75%
+  );
+  background-size: 250% 250%;
+  animation: holographicShine 6s linear infinite;
 }
 
-/* Ripple effect on bid button */
-.bid-glow {
-  box-shadow: 0 0 25px rgba(245, 158, 11, 0.45);
+/* Heartbeat Timer Pulse for Panic Phase (<4s) */
+@keyframes timerPulseCrit {
+  0% { transform: scale(1); filter: drop-shadow(0 0 6px rgba(255, 30, 86, 0.6)); }
+  50% { transform: scale(1.15); filter: drop-shadow(0 0 30px rgba(255, 30, 86, 1)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 6px rgba(255, 30, 86, 0.6)); }
 }
-.bid-glow:hover {
-  box-shadow: 0 0 40px rgba(245, 158, 11, 0.7);
+
+.timer-panic {
+  animation: timerPulseCrit 0.45s ease-in-out infinite;
+  color: #ff1e56 !important;
+}
+
+/* Screen Panic Red Vignette Pulse */
+@keyframes panicVignette {
+  0% { opacity: 0; }
+  50% { opacity: 0.35; }
+  100% { opacity: 0; }
+}
+.panic-screen-edge {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 80px rgba(255, 30, 86, 0.85);
+  z-index: 45;
+  animation: panicVignette 0.5s ease-in-out infinite;
+}
+
+/* Hammer Sold Stamp Slam */
+@keyframes stampSlam {
+  0% { opacity: 0; transform: scale(3.5) rotate(-25deg); }
+  65% { opacity: 1; transform: scale(0.92) rotate(-8deg); }
+  85% { transform: scale(1.05) rotate(-10deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-8deg); }
+}
+
+.stamp-sold-anim {
+  animation: stampSlam 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* Bidding War Banner Crackle */
+@keyframes warPulse {
+  0% { transform: scale(0.96); opacity: 0.85; filter: drop-shadow(0 0 8px rgba(255, 30, 86, 0.8)); }
+  50% { transform: scale(1.03); opacity: 1; filter: drop-shadow(0 0 25px rgba(255, 184, 0, 1)); }
+  100% { transform: scale(0.96); opacity: 0.85; filter: drop-shadow(0 0 8px rgba(255, 30, 86, 0.8)); }
+}
+.bidding-war-active {
+  animation: warPulse 0.8s ease-in-out infinite;
+}
+
+/* 3D Franchise Card Hover Lift */
+.franchise-3d-card {
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s ease, box-shadow 0.3s ease;
+  transform-style: preserve-3d;
+}
+.franchise-3d-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.7), 0 0 20px rgba(255, 184, 0, 0.25);
+}
+
+/* Infinite Scrolling Breaking News Ticker */
+@keyframes tickerSlide {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-ticker-marquee {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: tickerSlide 35s linear infinite;
+}
+.animate-ticker-marquee:hover {
+  animation-play-state: paused;
 }

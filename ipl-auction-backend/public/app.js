@@ -110,6 +110,18 @@ if (btnServerConfig) {
   });
 }
 
+// Application State (Declared before any timer or event listener)
+let currentRoom = null;
+let myTeam = null;
+let isHost = false;
+let mySelectedRetentions = [];
+let currentFranchiseRoster = [];
+let currentRetentionFilter = 'ALL';
+let currentRetentionSearch = '';
+const RETENTION_COSTS = [180000000, 140000000, 110000000, 180000000, 140000000];
+let isBidCooldown = false;
+let isVoiceEnabled = true;
+
 // Render Free-Tier Sleep Protection:
 // If completely idle for 5 minutes without creating/joining a room, disconnect to let Render sleep.
 let idleTimer = null;
@@ -124,7 +136,7 @@ function resetIdleTimer() {
   // Disconnect after 5 minutes of total inactivity (only if not inside an active room)
   idleTimer = setTimeout(() => {
     if (socket && !currentRoom) {
-      console.log('[IPL] 5 minutes idle — disconnecting socket to let Render sleep.');
+      console.log('[IPL] 5 minutes idle — disconnecting socket to let cloud server sleep.');
       socket.disconnect();
       socket = null;
       updateServerUI('disconnected', 'Sleeping (Idle)');
@@ -148,18 +160,6 @@ if (typeof io !== 'undefined') {
     }
   });
 }
-
-// Application State
-let currentRoom = null;
-let myTeam = null;
-let isHost = false;
-let mySelectedRetentions = [];
-let currentFranchiseRoster = [];
-let currentRetentionFilter = 'ALL';
-let currentRetentionSearch = '';
-const RETENTION_COSTS = [180000000, 140000000, 110000000, 180000000, 140000000];
-let isBidCooldown = false;
-let isVoiceEnabled = true;
 
 // Web Speech API Voice Commentary Synthesizer
 function speakCommentary(text) {
@@ -379,6 +379,56 @@ const modalSquadList = document.getElementById('modalSquadList');
 const btnViewFinalSquads = document.getElementById('btnViewFinalSquads');
 const toastContainer = document.getElementById('toastContainer');
 
+// New Broadcast Esports HUD Elements
+const franchiseAuraLayer = document.getElementById('franchiseAuraLayer');
+const panicScreenVignette = document.getElementById('panicScreenVignette');
+const biddingWarBanner = document.getElementById('biddingWarBanner');
+const cardHoloOverlay = document.getElementById('cardHoloOverlay');
+const bidFloatChipContainer = document.getElementById('bidFloatChipContainer');
+
+// Franchise Dynamic Aura Gradients
+const FRANCHISE_AURAS = {
+  CSK: 'radial-gradient(circle at 50% 50%, rgba(253, 216, 53, 0.16) 0%, transparent 70%)',
+  RCB: 'radial-gradient(circle at 50% 50%, rgba(227, 26, 34, 0.18) 0%, transparent 70%)',
+  MI: 'radial-gradient(circle at 50% 50%, rgba(0, 75, 160, 0.22) 0%, transparent 70%)',
+  KKR: 'radial-gradient(circle at 50% 50%, rgba(58, 34, 93, 0.26) 0%, transparent 70%)',
+  SRH: 'radial-gradient(circle at 50% 50%, rgba(242, 103, 34, 0.20) 0%, transparent 70%)',
+  RR: 'radial-gradient(circle at 50% 50%, rgba(234, 26, 133, 0.20) 0%, transparent 70%)',
+  DC: 'radial-gradient(circle at 50% 50%, rgba(0, 115, 207, 0.22) 0%, transparent 70%)',
+  LSG: 'radial-gradient(circle at 50% 50%, rgba(0, 174, 239, 0.18) 0%, transparent 70%)',
+  GT: 'radial-gradient(circle at 50% 50%, rgba(27, 33, 65, 0.28) 0%, transparent 70%)',
+  PBKS: 'radial-gradient(circle at 50% 50%, rgba(221, 30, 48, 0.20) 0%, transparent 70%)'
+};
+
+function setFranchiseAura(franchiseId) {
+  if (!franchiseAuraLayer) return;
+  if (franchiseId && FRANCHISE_AURAS[franchiseId]) {
+    franchiseAuraLayer.style.background = FRANCHISE_AURAS[franchiseId];
+    franchiseAuraLayer.style.opacity = '1';
+  } else {
+    franchiseAuraLayer.style.background = 'radial-gradient(circle at 50% 40%, rgba(255, 184, 0, 0.08) 0%, transparent 65%)';
+    franchiseAuraLayer.style.opacity = '0.7';
+  }
+}
+
+// Micro-Shake Trigger
+function triggerScreenMicroShake() {
+  document.body.classList.remove('shake-active');
+  void document.body.offsetWidth; // trigger reflow
+  document.body.classList.add('shake-active');
+  setTimeout(() => document.body.classList.remove('shake-active'), 260);
+}
+
+// Floating Currency Feedback Animation (+₹25 L or +₹1 Cr)
+function spawnFloatingCurrency(text) {
+  if (!bidFloatChipContainer) return;
+  const chip = document.createElement('div');
+  chip.className = 'float-chip-anim px-3 py-1 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 font-black font-display text-sm tracking-wider shadow-xl shadow-amber-500/40 border border-white/50 inline-block';
+  chip.textContent = text;
+  bidFloatChipContainer.appendChild(chip);
+  setTimeout(() => chip.remove(), 950);
+}
+
 // Voice Toggle Handler
 toggleVoiceBtn.addEventListener('click', () => {
   isVoiceEnabled = !isVoiceEnabled;
@@ -591,7 +641,7 @@ function setupLobby() {
   updateLobbyRetentionBanner();
 }
 
-// Render Available Franchises with Real Official Logos
+// Render Available Franchises with 3D Collectible Cards & Dynamic Hover Auras
 function renderFranchiseGrid() {
   franchiseGrid.innerHTML = '';
   const takenMap = new Map();
@@ -603,31 +653,38 @@ function renderFranchiseGrid() {
     const teamOwner = takenMap.get(f.id);
 
     const card = document.createElement('div');
-    card.className = `p-3 rounded-2xl border flex flex-col items-center justify-between transition-all ${
+    card.className = `franchise-3d-card p-3 sm:p-4 rounded-3xl border flex flex-col items-center justify-between transition-all relative overflow-hidden backdrop-blur-xl ${
       isMine
-        ? 'border-amber-400 bg-amber-500/10 shadow-lg shadow-amber-500/10 ring-2 ring-amber-400/50'
+        ? 'border-amber-400 bg-gradient-to-b from-amber-500/20 to-[#0e1730] shadow-2xl shadow-amber-500/30 ring-2 ring-amber-400/80 scale-[1.02]'
         : isTaken
-        ? 'opacity-40 border-slate-800 bg-slate-900 cursor-not-allowed'
-        : 'border-slate-800 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-800/80 cursor-pointer active:scale-95'
+        ? 'opacity-40 border-white/5 bg-[#080d1e] cursor-not-allowed'
+        : 'border-white/10 bg-[#0d1324]/80 hover:border-amber-400/60 hover:bg-[#121a32] cursor-pointer shadow-lg'
     }`;
 
+    // Franchise subtle colored backdrop glow
+    const teamGlow = f.color ? `box-shadow: 0 10px 25px -5px ${f.color}25;` : '';
+
     card.innerHTML = `
-      <div class="w-14 h-14 p-1 mb-1.5 flex items-center justify-center">
-        <img src="${f.logo}" alt="${f.name}" class="w-full h-full object-contain filter drop-shadow" />
+      ${isMine ? '<div class="absolute top-2 right-2 text-amber-400 text-xs"><i class="fa-solid fa-crown animate-bounce"></i></div>' : ''}
+      <div class="w-16 h-16 sm:w-18 sm:h-18 p-1.5 mb-2 flex items-center justify-center relative">
+        <img src="${f.logo}" alt="${f.name}" class="w-full h-full object-contain filter drop-shadow-xl transform group-hover:scale-110 transition duration-300" />
       </div>
-      <div class="font-black text-xs text-center text-white mb-0.5 tracking-wider">${f.id}</div>
-      <div class="text-[10px] text-slate-400 text-center truncate w-full mb-2">${f.name}</div>
+      <div class="font-black font-display text-sm text-center text-white mb-0.5 tracking-wider uppercase">${f.id}</div>
+      <div class="text-[10px] text-slate-400 text-center truncate w-full mb-3 font-sans">${f.name}</div>
       ${
         isMine 
-          ? `<span class="px-2.5 py-0.5 text-[9px] font-black rounded-full bg-amber-400 text-slate-950 uppercase">YOUR TEAM</span>`
+          ? `<span class="px-3 py-1 text-[9px] font-black font-display rounded-full bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 uppercase tracking-widest shadow-md">WAR ROOM ACTIVE</span>`
           : isTaken 
-          ? `<span class="px-2 py-0.5 text-[9px] font-semibold rounded-full bg-slate-800 text-slate-400 truncate max-w-full">${teamOwner.managerName}</span>`
-          : `<span class="px-2.5 py-0.5 text-[9px] font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">CLAIM</span>`
+          ? `<span class="px-2.5 py-0.5 text-[9px] font-bold rounded-full bg-[#121a32] text-slate-400 truncate max-w-full font-mono border border-white/10">LOCKED: ${teamOwner.managerName}</span>`
+          : `<span class="shimmer-btn px-3 py-1 text-[9px] font-black font-display rounded-full bg-victoryEmerald/20 text-victoryEmerald border border-victoryEmerald/40 uppercase tracking-wider hover:bg-victoryEmerald hover:text-slate-950 transition">CLAIM CREST</span>`
       }
     `;
 
     if (!isTaken) {
-      card.addEventListener('click', () => selectFranchise(f.id));
+      card.addEventListener('click', () => {
+        setFranchiseAura(f.id);
+        selectFranchise(f.id);
+      });
     }
 
     franchiseGrid.appendChild(card);
@@ -789,54 +846,60 @@ function renderModalRetentionGrid() {
       'Wicketkeeper': 'bg-purple-500/20 text-purple-300 border-purple-500/30'
     };
 
+    const tierBadge = retentionIndex === 0 
+      ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 font-black font-display tracking-wider">TIER 1 (GOLD)</span>'
+      : retentionIndex === 1 
+      ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-300 text-slate-950 font-black font-display tracking-wider">TIER 2 (SILVER)</span>'
+      : '<span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-bold font-display tracking-wider">CORE</span>';
+
     const card = document.createElement('div');
-    card.className = `p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+    card.className = `p-3.5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden backdrop-blur-xl ${
       isRetained 
-        ? 'border-amber-400 bg-amber-500/15 shadow-xl shadow-amber-500/10 ring-2 ring-amber-400/50 scale-[1.01]' 
-        : 'border-slate-800 bg-slate-900/90 hover:border-slate-700 hover:bg-slate-850'
+        ? 'border-amber-400 bg-gradient-to-b from-amber-500/20 to-[#0d1324] shadow-2xl shadow-amber-500/20 ring-2 ring-amber-400/70 scale-[1.01]' 
+        : 'border-white/10 bg-[#0d1324]/90 hover:border-white/25 hover:bg-[#121a32]'
     }`;
 
     card.innerHTML = `
-      <div class="flex items-start space-x-3 mb-2">
+      <div class="flex items-start space-x-3 mb-2.5">
         <div class="relative flex-shrink-0">
           <img 
             src="${player.photo}" 
             alt="${player.name}" 
-            class="w-14 h-14 rounded-2xl object-cover object-top border border-slate-700 shadow" 
+            class="w-16 h-16 rounded-2xl object-cover object-top border-2 border-white/15 shadow-xl" 
             onerror="this.src='/icons/player_avatar.svg'"
           />
           ${
             isRetained 
-              ? `<span class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center shadow">✓</span>`
+              ? `<span class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shadow-lg border border-white"><i class="fa-solid fa-lock text-[10px]"></i></span>`
               : ''
           }
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center space-x-1.5">
-            <h4 class="font-extrabold text-xs text-white truncate">${player.name}</h4>
-            ${player.isOverseas ? '<span class="text-[9px] px-1 py-0.2 rounded bg-blue-500/30 text-blue-300 font-bold">OS</span>' : ''}
+            <h4 class="font-black font-display text-sm text-white truncate tracking-wide">${player.name}</h4>
+            ${player.isOverseas ? '<span class="text-[9px] px-1 rounded bg-blue-500/30 text-laserCyan font-mono font-bold">OS</span>' : ''}
           </div>
-          <div class="flex items-center space-x-1 mt-0.5">
-            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border ${roleColors[player.role] || 'bg-slate-800 text-slate-300'}">${player.role}</span>
-            <span class="text-[10px] text-slate-400 truncate">• ${player.country}</span>
+          <div class="flex items-center space-x-1.5 mt-0.5">
+            <span class="px-2 py-0.5 rounded text-[9px] font-black font-display border ${roleColors[player.role] || 'bg-slate-800 text-slate-300'}">${player.role}</span>
+            <span class="text-[10px] text-slate-400 font-mono truncate">• ${player.country}</span>
           </div>
-          <div class="text-[10px] text-slate-400 font-mono mt-1">
-            ${player.stats.matches} M | ${player.stats.runs || 0} Runs | ${player.stats.wickets || 0} Wkts
+          <div class="text-[10px] text-slate-400 font-mono mt-1.5 bg-[#05070e] px-2 py-1 rounded-lg border border-white/5 inline-block">
+            ${player.stats.matches} M • ${player.stats.runs || 0} R • ${player.stats.wickets || 0} W
           </div>
         </div>
       </div>
 
-      <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between">
-        <div class="text-[10px]">
-          <span class="text-slate-400">Cost:</span> 
-          <b class="text-amber-400 font-mono font-bold">${formatCurrency(slotCost)}</b>
+      <div class="pt-2.5 border-t border-white/10 flex items-center justify-between">
+        <div class="text-[11px] font-mono">
+          <span class="text-slate-400 text-[10px]">Slot Cost:</span> 
+          <b class="text-amber-400 font-bold">${formatCurrency(slotCost)}</b>
         </div>
-        <button class="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition ${
+        <button class="px-3.5 py-1.5 rounded-xl text-[10px] font-black font-display uppercase tracking-wider transition ${
           isRetained 
-            ? 'bg-amber-400 text-slate-950 shadow-md' 
-            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+            ? 'bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/30' 
+            : 'bg-[#162347] hover:bg-[#1e3060] text-slate-200 border border-white/15'
         }">
-          ${isRetained ? 'RETAINED ✓' : 'RETAIN +'}
+          ${isRetained ? 'LOCKED ✓' : 'RETAIN +'}
         </button>
       </div>
     `;
@@ -1042,15 +1105,17 @@ function updateBidButton() {
   if (!currentRoom.highestBidder) {
     nextAmount = currentRoom.currentPlayer.basePrice;
     inc = 0;
-    bidButtonText.textContent = `BID (Base ${formatCurrency(nextAmount)})`;
+    bidButtonText.innerHTML = `<span class="tracking-widest">OPEN BID</span> <span class="text-xs font-mono opacity-80">(${formatCurrency(nextAmount)})</span>`;
   } else {
     inc = calculateIncrement(currentBid);
     nextAmount = currentBid + inc;
-    bidButtonText.textContent = `BID (+ ${formatCurrency(inc)}) ➔ ${formatCurrency(nextAmount)}`;
+    bidButtonText.innerHTML = `<span>RAISE BID</span> <span class="text-xs font-mono font-bold bg-black/25 px-2 py-0.5 rounded-lg">+${formatCurrency(inc)} ➔ ${formatCurrency(nextAmount)}</span>`;
   }
 
   bidStatusNotice.classList.add('hidden');
   btnPlaceBid.disabled = false;
+  btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
+  btnPlaceBid.classList.add('from-amber-500', 'to-amber-400');
 
   if (!myTeam) {
     btnPlaceBid.disabled = true;
@@ -1059,10 +1124,12 @@ function updateBidButton() {
     return;
   }
 
-  if (currentRoom.highestBidder && currentRoom.highestBidder.socketId === socket.id) {
+  // Morph into Glowing Emerald Container when leading
+  if (currentRoom.highestBidder && (currentRoom.highestBidder.socketId === socket.id || currentRoom.highestBidder.teamId === myTeam.franchiseId)) {
     btnPlaceBid.disabled = true;
-    bidStatusNotice.textContent = 'You are already the highest bidder!';
-    bidStatusNotice.classList.remove('hidden');
+    btnPlaceBid.classList.remove('from-amber-500', 'to-amber-400');
+    btnPlaceBid.classList.add('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
+    bidButtonText.innerHTML = `<i class="fa-solid fa-crown mr-1.5 text-slate-950 animate-bounce"></i> <span>YOU ARE HIGHEST BIDDER</span>`;
     return;
   }
 
@@ -1092,14 +1159,19 @@ function updateBidButton() {
   }
 
   // Update Fold button state
+  const isHighestBidder = currentRoom && currentRoom.highestBidder && myTeam && 
+    (currentRoom.highestBidder.socketId === (socket ? socket.id : null) || currentRoom.highestBidder.teamId === myTeam.franchiseId);
+
   if (!myTeam || !currentRoom || !currentRoom.currentPlayer) {
     btnFoldPlayer.disabled = true;
-  } else if (currentRoom.highestBidder && (currentRoom.highestBidder.socketId === socket.id || currentRoom.highestBidder.teamId === myTeam.franchiseId)) {
+  } else if (isHighestBidder) {
     btnFoldPlayer.disabled = true;
     foldButtonText.textContent = 'LEADING';
     btnFoldPlayer.classList.add('opacity-40');
     btnFoldPlayer.classList.remove('border-emerald-500/50', 'text-emerald-400');
+    btnFoldPlayer.title = 'Highest bidder cannot fold against their own bid!';
   } else {
+    btnFoldPlayer.title = 'Pass / Fold on this player';
     const foldedList = currentRoom.foldedTeams || [];
     const hasFolded = foldedList.includes(myTeam.franchiseId);
     if (hasFolded) {
@@ -1123,13 +1195,19 @@ function updateBidButton() {
   } else if (foldedCount >= requiredFolds && requiredFolds > 0) {
     foldStatusHint.textContent = `All teams folded! Hammer falling...`;
   } else {
-    foldStatusHint.textContent = `Instant sell if all pass`;
+    foldStatusHint.textContent = `Instant hammer if all pass`;
   }
 }
 
 // FOLD BUTTON CLICK HANDLER
 btnFoldPlayer.addEventListener('click', () => {
   if (!currentRoom || !currentRoom.currentPlayer || !myTeam) return;
+
+  // Strict client-side guard: highest bidder cannot fold!
+  if (currentRoom.highestBidder && (currentRoom.highestBidder.socketId === (socket ? socket.id : null) || currentRoom.highestBidder.teamId === myTeam.franchiseId)) {
+    showToast('Illegal action: You are the highest bidder and cannot fold!', 'warning');
+    return;
+  }
 
   socket.emit('team_fold', {}, (res) => {
     if (res && res.success) {
@@ -1148,6 +1226,9 @@ btnPlaceBid.addEventListener('click', () => {
   if (isBidCooldown || !currentRoom || !currentRoom.currentPlayer) return;
 
   const expectedCurrentBid = currentRoom.currentBid;
+
+  // Tactile micro-shake on physical press
+  triggerScreenMicroShake();
 
   isBidCooldown = true;
   btnPlaceBid.disabled = true;
@@ -1180,32 +1261,34 @@ function updateDrawerTeams() {
 
   teams.forEach(team => {
     const isMe = myTeam && myTeam.franchiseId === team.franchiseId;
+    const teamColor = team.color || '#FDB913';
     const card = document.createElement('div');
-    card.className = `p-3 rounded-2xl border flex flex-col justify-between transition cursor-pointer hover:border-slate-600 ${
-      isMe ? 'border-amber-400/80 bg-amber-500/10' : 'border-slate-800 bg-slate-950/70'
+    card.className = `p-3.5 rounded-2xl border flex flex-col justify-between transition cursor-pointer hover:border-white/30 backdrop-blur-xl relative overflow-hidden ${
+      isMe ? 'border-amber-400 bg-gradient-to-r from-amber-500/20 to-[#0e162d]' : 'border-white/10 bg-[#0d1324]/90'
     }`;
+    card.style.borderLeft = `5px solid ${teamColor}`;
 
     card.innerHTML = `
-      <div class="flex items-center justify-between mb-1.5">
-        <div class="flex items-center space-x-2.5">
-          <img src="${team.logo || `/logos/${team.franchiseId}.svg`}" alt="${team.franchiseId}" class="w-8 h-8 object-contain" />
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center space-x-3">
+          <img src="${team.logo || `/logos/${team.franchiseId}.svg`}" alt="${team.franchiseId}" class="w-9 h-9 object-contain filter drop-shadow" />
           <div>
-            <div class="text-xs font-black text-white flex items-center space-x-1">
+            <div class="text-xs font-black font-display text-white flex items-center space-x-1.5 uppercase tracking-wide">
               <span>${team.name}</span>
-              ${isMe ? '<span class="text-[9px] px-1 bg-amber-400 text-slate-950 font-black rounded">YOU</span>' : ''}
+              ${isMe ? '<span class="text-[9px] px-1.5 py-0.2 bg-amber-400 text-slate-950 font-black rounded font-mono">YOU</span>' : ''}
             </div>
-            <div class="text-[10px] text-slate-400">${team.managerName}</div>
+            <div class="text-[10px] text-slate-400 font-sans">${team.managerName}</div>
           </div>
         </div>
         <div class="text-right">
-          <div class="text-xs font-bold font-mono text-emerald-400">${formatCurrency(team.purse)}</div>
-          <div class="text-[10px] text-slate-400">Purse Left</div>
+          <div class="text-sm font-bold font-mono text-victoryEmerald">${formatCurrency(team.purse)}</div>
+          <div class="text-[9px] font-display uppercase tracking-widest text-slate-400">Purse Left</div>
         </div>
       </div>
-      <div class="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-800/80 text-slate-400">
+      <div class="flex items-center justify-between text-[10px] pt-2 border-t border-white/10 text-slate-400 font-mono">
         <span>Squad: <b class="text-white">${team.squadCount || 0}/${currentRoom.settings.maxSquadSize}</b></span>
-        <span>Overseas: <b class="text-blue-400">${team.overseasCount || 0}/${currentRoom.settings.maxOverseas}</b></span>
-        <span class="text-amber-400 hover:underline">Inspect ➔</span>
+        <span>Overseas: <b class="text-laserCyan">${team.overseasCount || 0}/${currentRoom.settings.maxOverseas}</b></span>
+        <span class="text-amber-400 hover:text-amber-300 font-display font-bold uppercase tracking-wider">Inspect ➔</span>
       </div>
     `;
 
@@ -1222,25 +1305,25 @@ function openSquadModal(team) {
 
   modalSquadList.innerHTML = '';
   if (team.squad.length === 0) {
-    modalSquadList.innerHTML = '<div class="text-center py-6 text-xs text-slate-500">No players acquired yet.</div>';
+    modalSquadList.innerHTML = '<div class="text-center py-8 text-xs text-slate-500 font-sans">No players acquired yet in this auction.</div>';
   } else {
     team.squad.forEach((player, i) => {
       const row = document.createElement('div');
-      row.className = 'p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs';
+      row.className = 'p-3 rounded-2xl bg-[#090e1f] border border-white/10 flex items-center justify-between text-xs hover:border-white/20 transition';
       row.innerHTML = `
-        <div class="flex items-center space-x-2.5">
-          <span class="text-slate-500 font-mono font-bold w-4">${i + 1}.</span>
-          <img src="${player.photo}" alt="${player.name}" class="w-8 h-8 rounded-lg object-cover border border-slate-700" onerror="this.src='/icons/player_avatar.svg'" />
+        <div class="flex items-center space-x-3">
+          <span class="text-slate-500 font-mono font-bold w-5">${i + 1}.</span>
+          <img src="${player.photo}" alt="${player.name}" class="w-9 h-9 rounded-xl object-cover object-top border border-white/15" onerror="this.src='/icons/player_avatar.svg'" />
           <div>
-            <div class="font-bold text-white flex items-center space-x-1.5">
+            <div class="font-black font-display text-white flex items-center space-x-1.5 uppercase tracking-wide">
               <span>${player.name}</span>
-              ${player.isOverseas ? '<span class="text-[9px] px-1 rounded bg-blue-500/20 text-blue-300">OS</span>' : ''}
-              ${player.acquiredVia === 'RETENTION' ? '<span class="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">RETAINED</span>' : ''}
+              ${player.isOverseas ? '<span class="text-[9px] px-1 rounded bg-blue-500/30 text-laserCyan font-mono">OS</span>' : ''}
+              ${player.acquiredVia === 'RETENTION' ? '<span class="text-[9px] px-1 rounded bg-amber-500/25 text-amber-300 font-display font-bold">RETAINED</span>' : ''}
             </div>
-            <div class="text-[10px] text-slate-400">${player.role} • ${player.country}</div>
+            <div class="text-[10px] text-slate-400 font-sans">${player.role} • ${player.country}</div>
           </div>
         </div>
-        <div class="font-mono font-bold text-amber-400 text-right">
+        <div class="font-mono font-bold text-amber-400 text-sm text-right">
           ${formatCurrency(player.finalPrice)}
         </div>
       `;
@@ -1296,20 +1379,38 @@ drawerOverlay.addEventListener('click', () => {
 
 btnViewFinalSquads.addEventListener('click', openTeamsDrawer);
 
-// Logs feed update
+// Broadcast Event Feed update
 function renderLogEntry(entry) {
   const row = document.createElement('div');
-  const typeColors = {
-    sold: 'text-emerald-400 border-l-2 border-emerald-500 pl-2',
-    unsold: 'text-rose-400 border-l-2 border-rose-500 pl-2',
-    bid: 'text-amber-300',
-    announcement: 'text-cyan-300 font-bold',
-    warning: 'text-rose-300 font-bold',
-    finish: 'text-yellow-400 font-bold'
+  
+  const typeIcons = {
+    sold: '<i class="fa-solid fa-trophy text-victoryEmerald mr-1.5"></i>',
+    unsold: '<i class="fa-solid fa-circle-xmark text-laserCrimson mr-1.5"></i>',
+    bid: '<i class="fa-solid fa-gavel text-amber-400 mr-1.5"></i>',
+    announcement: '<i class="fa-solid fa-bullhorn text-laserCyan mr-1.5"></i>',
+    warning: '<i class="fa-solid fa-triangle-exclamation text-amber-400 mr-1.5"></i>',
+    finish: '<i class="fa-solid fa-flag-checkered text-amber-300 mr-1.5"></i>'
   };
 
-  row.className = `py-1 ${typeColors[entry.type] || 'text-slate-300'}`;
-  row.innerHTML = `<span class="text-slate-500">[${entry.time}]</span> ${entry.message}`;
+  const typeBorders = {
+    sold: 'border-l-4 border-victoryEmerald bg-[#09161a]',
+    unsold: 'border-l-4 border-laserCrimson bg-[#160b12]',
+    bid: 'border-l-4 border-amber-400 bg-[#161208]',
+    announcement: 'border-l-4 border-laserCyan bg-[#08151f]',
+    warning: 'border-l-4 border-amber-500 bg-[#141209]',
+    finish: 'border-l-4 border-yellow-400 bg-[#161408]'
+  };
+
+  row.className = `p-2.5 rounded-xl border border-white/5 my-1 text-xs transition duration-200 ${typeBorders[entry.type] || 'bg-[#080d1e]'}`;
+  row.innerHTML = `
+    <div class="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
+      <span class="font-mono">${entry.time}</span>
+      <span class="font-display font-bold uppercase tracking-wider text-slate-400">${entry.type || 'INFO'}</span>
+    </div>
+    <div class="font-sans text-slate-200 leading-snug">
+      ${typeIcons[entry.type] || ''}${entry.message}
+    </div>
+  `;
 
   fullLogsFeed.prepend(row);
   liveFeedTicker.textContent = entry.message;
@@ -1346,35 +1447,69 @@ function registerSocketAuctionListeners(s) {
     }
   });
 
+  let lastBidTime = 0;
+  let lastBidderTeam = null;
+
   s.on('timer_tick', ({ seconds, isRunning }) => {
     if (isRunning) {
       auctionTimer.textContent = seconds;
       if (seconds <= 3) {
-        auctionTimer.classList.add('text-rose-500', 'animate-ping');
+        auctionTimer.classList.add('timer-panic');
+        if (panicScreenVignette) panicScreenVignette.classList.remove('hidden');
         playBeep(880, 'square', 0.08);
         if (seconds === 3) speakCommentary('Going once!');
         else if (seconds === 2) speakCommentary('Going twice!');
         else if (seconds === 1) speakCommentary('Final call!');
-      } else {
-        auctionTimer.classList.remove('text-rose-500', 'animate-ping', 'text-slate-400');
+      } else if (seconds <= 7) {
+        auctionTimer.classList.remove('timer-panic', 'text-slate-300');
         auctionTimer.classList.add('text-amber-400');
+        if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
+      } else {
+        auctionTimer.classList.remove('timer-panic', 'text-amber-400');
+        auctionTimer.classList.add('text-slate-300');
+        if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
       }
     } else {
       auctionTimer.textContent = '--';
-      auctionTimer.classList.remove('text-rose-500', 'animate-ping', 'text-amber-400');
+      auctionTimer.classList.remove('timer-panic', 'text-amber-400');
       auctionTimer.classList.add('text-slate-400');
+      if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
+      if (biddingWarBanner) biddingWarBanner.classList.add('hidden');
     }
   });
 
   s.on('bid_accepted', ({ currentBid, highestBidder }) => {
+    const prevBid = currentRoom ? currentRoom.currentBid : 0;
+    const bidDiff = prevBid > 0 ? (currentBid - prevBid) : currentBid;
+
     if (currentRoom) {
       currentRoom.currentBid = currentBid;
       currentRoom.highestBidder = highestBidder;
       currentRoom.isTimerRunning = true;
     }
+
     currentBidAmount.textContent = formatCurrency(currentBid);
-    currentBidAmount.classList.add('animate-bid-pulse');
-    setTimeout(() => currentBidAmount.classList.remove('animate-bid-pulse'), 300);
+    currentBidAmount.classList.remove('animate-bid-punch');
+    void currentBidAmount.offsetWidth; // re-flow
+    currentBidAmount.classList.add('animate-bid-punch');
+
+    // Spawn floating currency chip (+₹25 L or +₹1.00 Cr)
+    if (bidDiff > 0 && prevBid > 0) {
+      spawnFloatingCurrency(`+${formatCurrency(bidDiff)}`);
+    }
+
+    // Dynamic Bidding War Detector (two different teams bidding within 4 seconds)
+    const now = Date.now();
+    if (lastBidTime > 0 && (now - lastBidTime < 4000) && lastBidderTeam && lastBidderTeam !== highestBidder.teamId) {
+      if (biddingWarBanner) biddingWarBanner.classList.remove('hidden');
+    }
+    lastBidTime = now;
+    lastBidderTeam = highestBidder.teamId;
+
+    // Trigger franchise dynamic aura
+    if (highestBidder && highestBidder.teamId) {
+      setFranchiseAura(highestBidder.teamId);
+    }
 
     if (highestBidder) {
       highestBidderName.textContent = `${highestBidder.teamName} (${highestBidder.teamId}) - ${highestBidder.managerName}`;
@@ -1382,6 +1517,8 @@ function registerSocketAuctionListeners(s) {
       highestBidderLogoImg.classList.remove('hidden');
       highestBidderLogoImg.src = highestBidder.logo || `/logos/${highestBidder.teamId}.svg`;
       highestBidderBadge.style.backgroundColor = highestBidder.color || '#334155';
+      highestBidderBadge.classList.add('scale-105', 'border-amber-400');
+      setTimeout(() => highestBidderBadge.classList.remove('scale-105', 'border-amber-400'), 500);
     }
 
     playBidSound();
@@ -1394,13 +1531,18 @@ function registerSocketAuctionListeners(s) {
 
   s.on('player_sold', ({ player, team, price }) => {
     playHammerSound();
+    triggerScreenMicroShake();
+    if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
+    if (biddingWarBanner) biddingWarBanner.classList.add('hidden');
+
     playerSoldWatermark.classList.remove('hidden');
+    playerSoldWatermark.classList.add('stamp-sold-anim');
 
     const priceText = (price / 10000000).toFixed(2);
     speakCommentary(`Sold! ${player.name} is sold to ${team.name} for ${priceText} Crores!`);
 
     if (myTeam && myTeam.franchiseId === team.franchiseId && typeof confetti === 'function') {
-      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+      confetti({ particleCount: 160, spread: 100, origin: { y: 0.6 } });
     }
 
     showToast(`🔨 SOLD! ${player.name} to ${team.franchiseId} for ${formatCurrency(price)}!`, 'success');
@@ -1408,13 +1550,22 @@ function registerSocketAuctionListeners(s) {
 
   s.on('player_unsold', ({ player }) => {
     playHammerSound();
+    triggerScreenMicroShake();
+    if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
+    if (biddingWarBanner) biddingWarBanner.classList.add('hidden');
+
     playerUnsoldWatermark.classList.remove('hidden');
+    playerUnsoldWatermark.classList.add('stamp-sold-anim');
     speakCommentary(`No bids received. ${player.name} goes unsold.`);
     showToast(`❌ ${player.name} went UNSOLD!`, 'warning');
   });
 
   s.on('all_teams_folded', ({ player, highestBidder }) => {
     playHammerSound();
+    triggerScreenMicroShake();
+    if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
+    if (biddingWarBanner) biddingWarBanner.classList.add('hidden');
+
     if (highestBidder) {
       speakCommentary(`All remaining teams have folded! ${player.name} is sold early to ${highestBidder.teamName}!`);
       showToast(`⚡ All teams folded! Hammer falls early on ${player.name}!`, 'info');

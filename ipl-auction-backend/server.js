@@ -639,12 +639,16 @@ io.on('connection', (socket) => {
       const team = room.teams.get(socket.id);
       if (!team) return callback && callback({ success: false, error: 'Select a team first' });
 
-      // Leading bidder cannot fold against their own bid
-      if (room.highestBidder && room.highestBidder.socketId === socket.id) {
-        return callback && callback({ success: false, error: 'You are already the leading bidder!' });
+      // Strict security: Leading/Highest bidder CANNOT fold against their own bid!
+      if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
+        return callback && callback({ success: false, error: 'You are the highest bidder! Leading team cannot fold.' });
       }
 
       if (!room.foldedTeams) room.foldedTeams = new Set();
+      // Ensure highest bidder is never accidentally in the folded set
+      if (room.highestBidder) {
+        room.foldedTeams.delete(room.highestBidder.teamId);
+      }
       room.foldedTeams.add(team.franchiseId);
 
       addRoomLog(
