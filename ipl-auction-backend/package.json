@@ -1,0 +1,28 @@
+{
+  "name": "ipl-auction-simulator",
+  "version": "1.0.0",
+  "description": "Real-Time Multiplayer IPL Auction Simulator (Zero-Budget, Serverless Storage)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "ipl",
+    "auction",
+    "socketio",
+    "multiplayer",
+    "simulator",
+    "pwa"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}
