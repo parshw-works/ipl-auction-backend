@@ -98,54 +98,63 @@ if (btnModeLocal) {
 
 // Resilient Socket.IO client creation
 let socket = null;
-try {
-  if (typeof io !== 'undefined') {
-    socket = (ACTIVE_BACKEND && ACTIVE_BACKEND.startsWith('http')) 
-      ? io(ACTIVE_BACKEND, {
-          transports: ['websocket', 'polling'],
-          timeout: 25000,
-          reconnection: true,
-          reconnectionAttempts: 25,
-          reconnectionDelay: 1000
-        })
-      : io();
-  } else {
+
+function initSocket() {
+  if (socket) return socket;
+  if (typeof io === 'undefined') {
     console.warn('[IPL] Socket.IO library is loading, deferred initialization...');
-    const s = document.createElement('script');
-    s.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-    s.onload = () => {
-      if (typeof io !== 'undefined' && !socket) {
-        socket = (ACTIVE_BACKEND && ACTIVE_BACKEND.startsWith('http'))
-          ? io(ACTIVE_BACKEND, { transports: ['websocket', 'polling'] })
-          : io();
-        attachSocketLifecycle();
-      }
-    };
-    document.head.appendChild(s);
+    return null;
   }
-} catch (e) {
-  console.error('[IPL] Socket initialization error:', e);
+
+  try {
+    const opts = {
+      transports: ['websocket', 'polling'],
+      timeout: 25000,
+      reconnection: true,
+      reconnectionAttempts: 25,
+      reconnectionDelay: 1000
+    };
+
+    if (currentMode === 'local') {
+      socket = isLocal ? io(opts) : io('http://localhost:3000', opts);
+    } else {
+      socket = io(CLOUD_BACKEND_URL, opts);
+    }
+
+    socket.on('connect', () => {
+      console.log('[IPL] Connected to server! Socket ID:', socket.id);
+      updateServerUI('connected', currentMode === 'local' ? 'Localhost Live' : 'Cloud Live');
+    });
+
+    socket.on('connect_error', (err) => {
+      console.warn('[IPL] Server connecting/waking...', err.message);
+      updateServerUI('connecting', currentMode === 'local' ? 'Connecting Local...' : 'Waking Server...');
+    });
+
+    socket.on('disconnect', () => {
+      updateServerUI('disconnected', 'Disconnected');
+    });
+
+    if (typeof registerSocketAuctionListeners === 'function') {
+      registerSocketAuctionListeners(socket);
+    }
+
+    return socket;
+  } catch (e) {
+    console.error('[IPL] Socket initialization error:', e);
+    return null;
+  }
 }
 
-function attachSocketLifecycle() {
-  if (!socket) return;
-  socket.on('connect', () => {
-    console.log('[IPL] Connected to server! Socket ID:', socket.id);
-    updateServerUI('connected', currentMode === 'local' ? 'Localhost Live' : 'Cloud Live');
+// Initialize immediately if io is present
+if (typeof io !== 'undefined') {
+  initSocket();
+} else {
+  window.addEventListener('load', () => {
+    if (!socket && typeof io !== 'undefined') {
+      initSocket();
+    }
   });
-
-  socket.on('connect_error', (err) => {
-    console.warn('[IPL] Server connecting/waking...', err.message);
-    updateServerUI('connecting', currentMode === 'local' ? 'Connecting Local...' : 'Waking Server...');
-  });
-
-  socket.on('disconnect', () => {
-    updateServerUI('disconnected', 'Disconnected');
-  });
-}
-
-if (socket) {
-  attachSocketLifecycle();
 }
 
 if (btnServerConfig) {
@@ -465,12 +474,16 @@ btnTabJoin.addEventListener('click', () => {
 // Create Room
 btnSubmitCreateRoom.addEventListener('click', () => {
   if (!socket) {
-    showToast('Initializing connection to cloud server... Please wait a few seconds.', 'warning');
+    socket = initSocket();
+  }
+
+  if (!socket) {
+    showToast(currentMode === 'local' ? 'Connecting to local server (port 3000)... Please wait.' : 'Connecting to cloud server... Please wait a few seconds.', 'warning');
     return;
   }
 
   if (!socket.connected) {
-    showToast('Connecting to Render cloud server... Please wait a moment while server wakes up.', 'info');
+    showToast(currentMode === 'local' ? 'Connecting to local server on port 3000...' : 'Connecting to Render cloud server... Please wait a moment while server wakes up.', 'info');
   }
 
   const origHTML = btnSubmitCreateRoom.innerHTML;
@@ -480,7 +493,7 @@ btnSubmitCreateRoom.addEventListener('click', () => {
   const timeout = setTimeout(() => {
     btnSubmitCreateRoom.disabled = false;
     btnSubmitCreateRoom.innerHTML = origHTML;
-    showToast('Cloud server is still spinning up (free servers can take 30-40s on first load). Please click again in 10 seconds.', 'warning');
+    showToast(currentMode === 'local' ? 'Could not reach local server. Make sure node server.js is running!' : 'Cloud server is still spinning up (free servers can take 30-40s on first load). Please click again in 10 seconds.', 'warning');
   }, 15000);
 
   const initialPurse = document.getElementById('selectInitialPurse').value;
@@ -515,7 +528,11 @@ btnSubmitJoinRoom.addEventListener('click', () => {
   if (!roomCode) return showToast('Please enter room code', 'warning');
 
   if (!socket) {
-    showToast('Initializing connection to cloud server... Please wait a few seconds.', 'warning');
+    socket = initSocket();
+  }
+
+  if (!socket) {
+    showToast(currentMode === 'local' ? 'Connecting to local server (port 3000)... Please wait.' : 'Connecting to cloud server... Please wait a few seconds.', 'warning');
     return;
   }
 
@@ -1302,111 +1319,120 @@ function renderLogEntry(entry) {
 }
 
 // SOCKET.IO REAL-TIME LISTENERS
-socket.on('room_update', (roomState) => {
-  currentRoom = roomState;
-  isHost = currentRoom.hostId === socket.id;
+function registerSocketAuctionListeners(s) {
+  if (!s) return;
 
-  if (myTeam) {
-    const fresh = roomState.teams.find(t => t.socketId === socket.id || t.franchiseId === myTeam.franchiseId);
-    if (fresh) {
-      myTeam = fresh;
-      if (Array.isArray(fresh.retentions) && fresh.retentions.length > 0) {
-        mySelectedRetentions = fresh.retentions;
+  s.on('room_update', (roomState) => {
+    currentRoom = roomState;
+    isHost = currentRoom.hostId === s.id;
+
+    if (myTeam) {
+      const fresh = roomState.teams.find(t => t.socketId === s.id || t.franchiseId === myTeam.franchiseId);
+      if (fresh) {
+        myTeam = fresh;
+        if (Array.isArray(fresh.retentions) && fresh.retentions.length > 0) {
+          mySelectedRetentions = fresh.retentions;
+        }
+        updateUserFranchisePill();
+        updateLobbyRetentionBanner();
       }
-      updateUserFranchisePill();
-      updateLobbyRetentionBanner();
     }
-  }
 
-  updateDrawerTeams();
+    updateDrawerTeams();
 
-  if (roomState.status === 'LOBBY' || roomState.status === 'RETENTION') {
-    setupLobby();
-  } else if (roomState.status === 'AUCTION') {
-    updateAuctionView(roomState);
-  } else if (roomState.status === 'FINISHED') {
-    switchView('FINISHED');
-  }
-});
+    if (roomState.status === 'LOBBY' || roomState.status === 'RETENTION') {
+      setupLobby();
+    } else if (roomState.status === 'AUCTION') {
+      updateAuctionView(roomState);
+    } else if (roomState.status === 'FINISHED') {
+      switchView('FINISHED');
+    }
+  });
 
-socket.on('timer_tick', ({ seconds, isRunning }) => {
-  if (isRunning) {
-    auctionTimer.textContent = seconds;
-    if (seconds <= 3) {
-      auctionTimer.classList.add('text-rose-500', 'animate-ping');
-      playBeep(880, 'square', 0.08);
-      if (seconds === 3) speakCommentary('Going once!');
-      else if (seconds === 2) speakCommentary('Going twice!');
-      else if (seconds === 1) speakCommentary('Final call!');
+  s.on('timer_tick', ({ seconds, isRunning }) => {
+    if (isRunning) {
+      auctionTimer.textContent = seconds;
+      if (seconds <= 3) {
+        auctionTimer.classList.add('text-rose-500', 'animate-ping');
+        playBeep(880, 'square', 0.08);
+        if (seconds === 3) speakCommentary('Going once!');
+        else if (seconds === 2) speakCommentary('Going twice!');
+        else if (seconds === 1) speakCommentary('Final call!');
+      } else {
+        auctionTimer.classList.remove('text-rose-500', 'animate-ping', 'text-slate-400');
+        auctionTimer.classList.add('text-amber-400');
+      }
     } else {
-      auctionTimer.classList.remove('text-rose-500', 'animate-ping', 'text-slate-400');
-      auctionTimer.classList.add('text-amber-400');
+      auctionTimer.textContent = '--';
+      auctionTimer.classList.remove('text-rose-500', 'animate-ping', 'text-amber-400');
+      auctionTimer.classList.add('text-slate-400');
     }
-  } else {
-    auctionTimer.textContent = '--';
-    auctionTimer.classList.remove('text-rose-500', 'animate-ping', 'text-amber-400');
-    auctionTimer.classList.add('text-slate-400');
-  }
-});
+  });
 
-socket.on('bid_accepted', ({ currentBid, highestBidder }) => {
-  if (currentRoom) {
-    currentRoom.currentBid = currentBid;
-    currentRoom.highestBidder = highestBidder;
-    currentRoom.isTimerRunning = true;
-  }
-  currentBidAmount.textContent = formatCurrency(currentBid);
-  currentBidAmount.classList.add('animate-bid-pulse');
-  setTimeout(() => currentBidAmount.classList.remove('animate-bid-pulse'), 300);
+  s.on('bid_accepted', ({ currentBid, highestBidder }) => {
+    if (currentRoom) {
+      currentRoom.currentBid = currentBid;
+      currentRoom.highestBidder = highestBidder;
+      currentRoom.isTimerRunning = true;
+    }
+    currentBidAmount.textContent = formatCurrency(currentBid);
+    currentBidAmount.classList.add('animate-bid-pulse');
+    setTimeout(() => currentBidAmount.classList.remove('animate-bid-pulse'), 300);
 
-  if (highestBidder) {
-    highestBidderName.textContent = `${highestBidder.teamName} (${highestBidder.teamId}) - ${highestBidder.managerName}`;
-    highestBidderPlaceholderIcon.classList.add('hidden');
-    highestBidderLogoImg.classList.remove('hidden');
-    highestBidderLogoImg.src = highestBidder.logo || `/logos/${highestBidder.teamId}.svg`;
-    highestBidderBadge.style.backgroundColor = highestBidder.color || '#334155';
-  }
+    if (highestBidder) {
+      highestBidderName.textContent = `${highestBidder.teamName} (${highestBidder.teamId}) - ${highestBidder.managerName}`;
+      highestBidderPlaceholderIcon.classList.add('hidden');
+      highestBidderLogoImg.classList.remove('hidden');
+      highestBidderLogoImg.src = highestBidder.logo || `/logos/${highestBidder.teamId}.svg`;
+      highestBidderBadge.style.backgroundColor = highestBidder.color || '#334155';
+    }
 
-  playBidSound();
-  updateBidButton();
+    playBidSound();
+    updateBidButton();
 
-  // Commentary voice on major or new bids
-  const priceText = (currentBid / 10000000).toFixed(2);
-  speakCommentary(`${highestBidder.teamId} raises the bid to ${priceText} Crores!`);
-});
+    // Commentary voice on major or new bids
+    const priceText = (currentBid / 10000000).toFixed(2);
+    speakCommentary(`${highestBidder.teamId} raises the bid to ${priceText} Crores!`);
+  });
 
-socket.on('player_sold', ({ player, team, price }) => {
-  playHammerSound();
-  playerSoldWatermark.classList.remove('hidden');
+  s.on('player_sold', ({ player, team, price }) => {
+    playHammerSound();
+    playerSoldWatermark.classList.remove('hidden');
 
-  const priceText = (price / 10000000).toFixed(2);
-  speakCommentary(`Sold! ${player.name} is sold to ${team.name} for ${priceText} Crores!`);
+    const priceText = (price / 10000000).toFixed(2);
+    speakCommentary(`Sold! ${player.name} is sold to ${team.name} for ${priceText} Crores!`);
 
-  if (myTeam && myTeam.franchiseId === team.franchiseId && typeof confetti === 'function') {
-    confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
-  }
+    if (myTeam && myTeam.franchiseId === team.franchiseId && typeof confetti === 'function') {
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+    }
 
-  showToast(`🔨 SOLD! ${player.name} to ${team.franchiseId} for ${formatCurrency(price)}!`, 'success');
-});
+    showToast(`🔨 SOLD! ${player.name} to ${team.franchiseId} for ${formatCurrency(price)}!`, 'success');
+  });
 
-socket.on('player_unsold', ({ player }) => {
-  playHammerSound();
-  playerUnsoldWatermark.classList.remove('hidden');
-  speakCommentary(`No bids received. ${player.name} goes unsold.`);
-  showToast(`❌ ${player.name} went UNSOLD!`, 'warning');
-});
+  s.on('player_unsold', ({ player }) => {
+    playHammerSound();
+    playerUnsoldWatermark.classList.remove('hidden');
+    speakCommentary(`No bids received. ${player.name} goes unsold.`);
+    showToast(`❌ ${player.name} went UNSOLD!`, 'warning');
+  });
 
-socket.on('all_teams_folded', ({ player, highestBidder }) => {
-  playHammerSound();
-  if (highestBidder) {
-    speakCommentary(`All remaining teams have folded! ${player.name} is sold early to ${highestBidder.teamName}!`);
-    showToast(`⚡ All teams folded! Hammer falls early on ${player.name}!`, 'info');
-  } else {
-    speakCommentary(`All teams have folded without any bids. ${player.name} goes unsold.`);
-    showToast(`⚡ All teams folded! ${player.name} passed unsold!`, 'warning');
-  }
-});
+  s.on('all_teams_folded', ({ player, highestBidder }) => {
+    playHammerSound();
+    if (highestBidder) {
+      speakCommentary(`All remaining teams have folded! ${player.name} is sold early to ${highestBidder.teamName}!`);
+      showToast(`⚡ All teams folded! Hammer falls early on ${player.name}!`, 'info');
+    } else {
+      speakCommentary(`All teams have folded without any bids. ${player.name} goes unsold.`);
+      showToast(`⚡ All teams folded! ${player.name} passed unsold!`, 'warning');
+    }
+  });
 
-socket.on('new_log', (entry) => {
-  renderLogEntry(entry);
-});
+  s.on('new_log', (entry) => {
+    renderLogEntry(entry);
+  });
+}
+
+// Ensure listeners are bound if socket is already present
+if (socket) {
+  registerSocketAuctionListeners(socket);
+}
