@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -31,20 +32,27 @@ app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0
 }));
 
-// Load static players dataset
+// Load static players dataset strictly on boot as immutable reference array
 const playersFilePath = path.join(__dirname, 'players.json');
 let playersDataset = [];
 try {
   const rawData = fs.readFileSync(playersFilePath, 'utf-8');
   playersDataset = JSON.parse(rawData);
-  console.log(`[IPL SERVER] Successfully loaded ${playersDataset.length} players.`);
+  console.log(`[IPL SERVER] Successfully loaded ${playersDataset.length} players with ratings.`);
 } catch (err) {
   console.error('[IPL SERVER] Error loading players.json:', err.message);
   process.exit(1);
 }
 
-// In-Memory Storage for Auction Rooms (Zero external DB)
+// In-Memory Storage for Active Auction Matches strictly in RAM
 const rooms = new Map();
+
+// Session Registry: sessionToken -> { roomId, teamId, managerName, socketId }
+const sessionRegistry = new Map();
+
+function generateSessionToken() {
+  return crypto.randomBytes(16).toString('hex');
+}
 
 // Franchise configurations with local vector logos
 const IPL_TEAMS = [
@@ -89,6 +97,99 @@ function generateRoomCode() {
 // Retention cost slabs
 const RETENTION_COSTS = [180000000, 140000000, 110000000, 180000000, 140000000];
 
+// Controlled host wrap-up threshold check
+function canConcludeEarly(room) {
+  if (room.status !== 'AUCTION') return false;
+  if (!room.teams || room.teams.size === 0) return false;
+  const minRequired = (room.settings && room.settings.minSquadSize) || 15;
+  for (const team of room.teams.values()) {
+    if ((team.squad ? team.squad.length : 0) < minRequired) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Victory scoring formula: Team Total Points = sum of roster player ratings
+function calculateStandings(room) {
+  const teams = Array.from(room.teams.values());
+  const scoredTeams = teams.map(t => {
+    const totalPoints = t.squad.reduce((sum, p) => sum + (p.rating || 75), 0);
+    const avgRating = t.squad.length > 0 ? (totalPoints / t.squad.length).toFixed(1) : '0.0';
+    return {
+      ...t,
+      totalPoints,
+      avgRating: Number(avgRating),
+      squadCount: t.squad.length
+    };
+  });
+
+  // Sort: descending by totalPoints; tie breaker: descending by remaining purse
+  scoredTeams.sort((a, b) => {
+    if (b.totalPoints !== a.totalPoints) {
+      return b.totalPoints - a.totalPoints;
+    }
+    return b.purse - a.purse;
+  });
+
+  scoredTeams.forEach((t, index) => {
+    t.rank = index + 1;
+  });
+
+  return scoredTeams;
+}
+
+// Match End Engine: Transition Sequence
+function triggerAuctionEndSequence(room, reason) {
+  if (room.isConcluding || room.status === 'FINISHED') return;
+  room.isConcluding = true;
+  clearRoomTimer(room);
+
+  addRoomLog(room, `🏁 ${reason || 'Auction concluded!'} Tallying final squad points...`, 'finish');
+  io.to(room.code).emit('auction_concluding', {
+    reason: reason || 'Auction concluded',
+    countdown: 5
+  });
+
+  setTimeout(() => {
+    room.status = 'FINISHED';
+    room.currentPlayer = null;
+    room.highestBidder = null;
+    room.isConcluding = false;
+    const standings = calculateStandings(room);
+    room.standings = standings;
+
+    addRoomLog(room, `🏆 CHAMPIONSHIP DECIDED! Check the Grand Finale Podium.`, 'finish');
+    io.to(room.code).emit('auction_concluded', {
+      standings,
+      roomState: sanitizeRoomState(room)
+    });
+    broadcastRoomUpdate(room.code);
+  }, 5000);
+}
+
+// Trigger B check: Squad capacity / financial saturation
+function checkCapacityAndFinanceEndCondition(room) {
+  if (!room.teams || room.teams.size === 0) return false;
+  const maxSquad = (room.settings && room.settings.maxSquadSize) || 25;
+  
+  let minBasePrice = 20000000;
+  for (let i = room.auctionIndex + 1; i < room.playerPool.length; i++) {
+    if (room.playerPool[i].basePrice < minBasePrice) {
+      minBasePrice = room.playerPool[i].basePrice;
+    }
+  }
+
+  for (const team of room.teams.values()) {
+    const hasSlot = team.squad.length < maxSquad;
+    const hasPurse = team.purse >= minBasePrice;
+    if (hasSlot && hasPurse) {
+      return false; // at least one team has slots and funds left
+    }
+  }
+  return true;
+}
+
 function sanitizeRoomState(room) {
   const foldedList = Array.from(room.foldedTeams || []);
   const requiredFolds = room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1);
@@ -96,6 +197,9 @@ function sanitizeRoomState(room) {
     code: room.code,
     hostId: room.hostId,
     status: room.status,
+    isStarted: !!room.isStarted,
+    isConcluding: !!room.isConcluding,
+    canConcludeEarly: canConcludeEarly(room),
     settings: room.settings,
     teams: Array.from(room.teams.values()),
     currentPlayer: room.currentPlayer,
@@ -110,7 +214,8 @@ function sanitizeRoomState(room) {
     unclaimedTeams: IPL_TEAMS.filter(t => !Array.from(room.teams.values()).some(team => team.franchiseId === t.id)),
     foldedTeams: foldedList,
     foldedCount: foldedList.length,
-    requiredFolds: requiredFolds
+    requiredFolds: requiredFolds,
+    standings: room.standings || null
   };
 }
 
@@ -179,9 +284,9 @@ function handlePlayerSoldOrUnsold(room) {
 
       addRoomLog(
         room,
-        `🔨 SOLD! ${player.name} sold to ${winningTeam.name} (${winningTeam.franchiseId}) for ₹${(room.currentBid / 10000000).toFixed(2)} Cr!`,
+        `🔨 SOLD! ${player.name} sold to ${winningTeam.name} (${winningTeam.franchiseId}) for ₹${(room.currentBid / 10000000).toFixed(2)} Cr! [Rating: ${player.rating || 75}]`,
         'sold',
-        { playerName: player.name, teamName: winningTeam.name, teamId: winningTeam.franchiseId, price: room.currentBid }
+        { playerName: player.name, teamName: winningTeam.name, teamId: winningTeam.franchiseId, price: room.currentBid, rating: player.rating }
       );
 
       io.to(room.code).emit('player_sold', {
@@ -195,6 +300,14 @@ function handlePlayerSoldOrUnsold(room) {
     room.unsoldPlayers.push(player);
     addRoomLog(room, `❌ UNSOLD! ${player.name} went unsold at base price ₹${(player.basePrice / 10000000).toFixed(2)} Cr.`, 'unsold');
     io.to(room.code).emit('player_unsold', { player });
+  }
+
+  // Check Trigger B: Squad capacity or financial saturation
+  if (checkCapacityAndFinanceEndCondition(room)) {
+    setTimeout(() => {
+      triggerAuctionEndSequence(room, 'All participating teams have reached max squad capacity or exhausted purse limits!');
+    }, 2500);
+    return;
   }
 
   // 3-second delay before moving to next player
@@ -213,26 +326,20 @@ function advanceToNextPlayer(room) {
     room.currentBid = nextPlayer.basePrice;
     room.highestBidder = null;
     room.timerSeconds = 15;
-    room.isTimerRunning = false; // Note: Timer does NOT start until someone bids!
+    room.isTimerRunning = false;
     room.foldedTeams = new Set();
     clearRoomTimer(room);
 
     addRoomLog(
       room,
-      `📢 Next on hammer: ${nextPlayer.name} (${nextPlayer.role}, ${nextPlayer.isOverseas ? '✈️ Overseas' : '🇮🇳 Indian'}) - Base: ₹${(nextPlayer.basePrice / 10000000).toFixed(2)} Cr`,
+      `📢 Next on hammer: ${nextPlayer.name} (${nextPlayer.role}, ${nextPlayer.isOverseas ? '✈️ Overseas' : '🇮🇳 Indian'}) - Base: ₹${(nextPlayer.basePrice / 10000000).toFixed(2)} Cr [Rating: ${nextPlayer.rating || 75}]`,
       'announcement'
     );
 
     broadcastRoomUpdate(room.code);
   } else {
-    // AUCTION COMPLETED
-    room.status = 'FINISHED';
-    room.currentPlayer = null;
-    room.highestBidder = null;
-    room.foldedTeams = new Set();
-    clearRoomTimer(room);
-    addRoomLog(room, `🏆 AUCTION COMPLETED! All players in pool have been presented.`, 'finish');
-    broadcastRoomUpdate(room.code);
+    // Trigger A: Player pool exhaustion
+    triggerAuctionEndSequence(room, 'All players in auction pool have been presented!');
   }
 }
 
@@ -241,8 +348,16 @@ io.on('connection', (socket) => {
   // 1. Create Room
   socket.on('create_room', (data, callback) => {
     try {
-      const { initialPurse = 1000000000, maxSquadSize = 25, maxOverseas = 8, retentionsAllowed = 2 } = data || {};
+      const { 
+        initialPurse = 1000000000, 
+        maxSquadSize = 25, 
+        minSquadSize = 15,
+        maxOverseas = 8, 
+        retentionsAllowed = 2,
+        managerName = 'Host'
+      } = data || {};
       const roomCode = generateRoomCode();
+      const token = data.sessionToken || generateSessionToken();
 
       // Clone players pool
       const playerPool = JSON.parse(JSON.stringify(playersDataset));
@@ -251,16 +366,19 @@ io.on('connection', (socket) => {
         code: roomCode,
         hostId: socket.id,
         status: 'LOBBY',
+        isStarted: false,
+        isConcluding: false,
         settings: {
           initialPurse: Number(initialPurse) || 1000000000,
           maxSquadSize: Number(maxSquadSize) || 25,
+          minSquadSize: Number(minSquadSize) || 15,
           maxOverseas: Number(maxOverseas) || 8,
           retentionsAllowed: Math.min(Math.max(Number(retentionsAllowed) || 0, 0), 4)
         },
         teams: new Map(),
         playerPool,
         unsoldPlayers: [],
-        skipHistory: [], // Host undo skip stack
+        skipHistory: [],
         foldedTeams: new Set(),
         auctionIndex: -1,
         currentPlayer: null,
@@ -269,17 +387,25 @@ io.on('connection', (socket) => {
         timerSeconds: 15,
         isTimerRunning: false,
         timerInterval: null,
-        recentLogs: []
+        recentLogs: [],
+        standings: null
       };
 
       rooms.set(roomCode, newRoom);
       socket.join(roomCode);
       socket.roomCode = roomCode;
 
+      sessionRegistry.set(token, {
+        roomId: roomCode,
+        teamId: null,
+        managerName: (managerName || 'Host').trim(),
+        socketId: socket.id
+      });
+
       addRoomLog(newRoom, `Room created [${roomCode}]. Host joined.`);
 
       if (typeof callback === 'function') {
-        callback({ success: true, roomCode, roomState: sanitizeRoomState(newRoom) });
+        callback({ success: true, roomCode, sessionToken: token, roomState: sanitizeRoomState(newRoom) });
       }
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
@@ -287,7 +413,7 @@ io.on('connection', (socket) => {
   });
 
   // 2. Join Room
-  socket.on('join_room', ({ roomCode }, callback) => {
+  socket.on('join_room', ({ roomCode, managerName, sessionToken }, callback) => {
     try {
       if (!roomCode) return callback && callback({ success: false, error: 'Room code is required' });
       const code = roomCode.toUpperCase().trim();
@@ -295,11 +421,35 @@ io.on('connection', (socket) => {
 
       if (!room) return callback && callback({ success: false, error: 'Room not found. Check code.' });
 
+      if (room.cleanupTimer) {
+        clearTimeout(room.cleanupTimer);
+        room.cleanupTimer = null;
+      }
+
+      const token = sessionToken || generateSessionToken();
+      const mName = (managerName || 'Player').trim();
+
+      // Check manager name duplication inside active room
+      const existingNames = Array.from(room.teams.values()).map(t => t.managerName.toLowerCase());
+      if (existingNames.includes(mName.toLowerCase())) {
+        const registered = sessionRegistry.get(token);
+        if (!registered || registered.roomId !== code) {
+          return callback && callback({ success: false, error: `Manager handle "${mName}" is already taken in this room. Please choose another.` });
+        }
+      }
+
       socket.join(code);
       socket.roomCode = code;
 
+      sessionRegistry.set(token, {
+        roomId: code,
+        teamId: null,
+        managerName: mName,
+        socketId: socket.id
+      });
+
       if (typeof callback === 'function') {
-        callback({ success: true, roomState: sanitizeRoomState(room) });
+        callback({ success: true, sessionToken: token, roomState: sanitizeRoomState(room) });
       }
 
       broadcastRoomUpdate(code);
@@ -308,15 +458,96 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 2B. Reconnect Player / Resume Session
+  const handleReconnect = ({ roomId, roomCode, sessionToken, teamId, franchiseId, managerName }, callback) => {
+    try {
+      const code = (roomId || roomCode || '').toUpperCase().trim();
+      if (!code) return callback && callback({ success: false, error: 'Room code is required' });
+      const room = rooms.get(code);
+
+      if (!room) return callback && callback({ success: false, error: 'War Room session expired or not found.' });
+
+      if (room.cleanupTimer) {
+        clearTimeout(room.cleanupTimer);
+        room.cleanupTimer = null;
+      }
+
+      socket.join(code);
+      socket.roomCode = code;
+
+      // Re-assign host if old host is disconnected
+      const activeSockets = Array.from(io.sockets.adapter.rooms.get(code) || []);
+      if (!room.hostId || !activeSockets.includes(room.hostId)) {
+        room.hostId = socket.id;
+      }
+
+      const fId = franchiseId || teamId;
+      let reclaimedTeam = null;
+
+      if (fId) {
+        for (const [oldSId, team] of room.teams.entries()) {
+          if (team.franchiseId === fId) {
+            room.teams.delete(oldSId);
+            team.socketId = socket.id;
+            if (managerName) team.managerName = managerName.trim();
+            team.isHost = (socket.id === room.hostId);
+            room.teams.set(socket.id, team);
+            reclaimedTeam = team;
+
+            if (room.highestBidder && (room.highestBidder.teamId === fId || room.highestBidder.socketId === oldSId)) {
+              room.highestBidder.socketId = socket.id;
+            }
+            break;
+          }
+        }
+      }
+
+      const token = sessionToken || generateSessionToken();
+      sessionRegistry.set(token, {
+        roomId: code,
+        teamId: reclaimedTeam ? reclaimedTeam.franchiseId : null,
+        managerName: reclaimedTeam ? reclaimedTeam.managerName : (managerName || 'Manager'),
+        socketId: socket.id
+      });
+
+      addRoomLog(
+        room,
+        `⚡ ${reclaimedTeam ? reclaimedTeam.managerName : (managerName || 'Player')} reconnected & restored session.`,
+        'info'
+      );
+
+      const franchiseRoster = reclaimedTeam ? playersDataset.filter(p => p.originalTeam === reclaimedTeam.franchiseId) : [];
+
+      if (typeof callback === 'function') {
+        callback({
+          success: true,
+          reclaimed: !!reclaimedTeam,
+          sessionToken: token,
+          roomState: sanitizeRoomState(room),
+          team: reclaimedTeam,
+          franchiseRoster
+        });
+      }
+
+      broadcastRoomUpdate(code);
+    } catch (err) {
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
+  };
+
+  socket.on('reconnect_player', handleReconnect);
+  socket.on('reconnect_session', handleReconnect);
+
   // 3. Select Team Franchise
-  socket.on('select_team', ({ franchiseId, managerName }, callback) => {
+  socket.on('select_team', ({ franchiseId, managerName, sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
-      if (room.status !== 'LOBBY' && room.status !== 'RETENTION') {
-        return callback && callback({ success: false, error: 'Auction already started. Cannot switch team.' });
+      // Match-Lock Guard: Once match is started, team selection is strictly locked
+      if (room.isStarted || room.status !== 'LOBBY') {
+        return callback && callback({ success: false, error: 'Match already started. Franchise selection is locked.' });
       }
 
       const franchise = IPL_TEAMS.find(t => t.id === franchiseId);
@@ -348,9 +579,13 @@ io.on('connection', (socket) => {
       };
 
       room.teams.set(socket.id, teamData);
+
+      if (sessionToken && sessionRegistry.has(sessionToken)) {
+        sessionRegistry.get(sessionToken).teamId = franchise.id;
+      }
+
       addRoomLog(room, `${teamData.managerName} took control of ${teamData.name} (${teamData.franchiseId})`);
 
-      // Provide the franchise's real player retention roster immediately
       const franchiseRoster = playersDataset.filter(p => p.originalTeam === franchiseId);
 
       if (typeof callback === 'function') {
@@ -376,8 +611,9 @@ io.on('connection', (socket) => {
       const team = room.teams.get(socket.id);
       if (!team) return callback && callback({ success: false, error: 'Select a team first.' });
 
-      if (room.status !== 'LOBBY' && room.status !== 'RETENTION') {
-        return callback && callback({ success: false, error: 'Retentions only allowed before auction start.' });
+      // Match-Lock Guard: Once match is started, retentions are locked
+      if (room.isStarted || room.status !== 'LOBBY') {
+        return callback && callback({ success: false, error: 'Match already started. Retentions are locked.' });
       }
 
       const selectedIds = Array.isArray(playerIds) ? playerIds.slice(0, room.settings.retentionsAllowed) : [];
@@ -444,6 +680,7 @@ io.on('connection', (socket) => {
         return callback && callback({ success: false, error: 'No players left in pool!' });
       }
 
+      room.isStarted = true;
       room.status = 'AUCTION';
       room.auctionIndex = -1;
 
@@ -456,7 +693,31 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 6. Place Bid (Synchronous Atomic Handling in Event Loop)
+  // 5B. Controlled Host Wrap-Up (Accelerated Phase / Manual Finalize)
+  socket.on('host_conclude_auction', (_, callback) => {
+    try {
+      const roomCode = socket.roomCode;
+      const room = rooms.get(roomCode);
+      if (!room) return callback && callback({ success: false, error: 'Room not found' });
+      if (socket.id !== room.hostId) return callback && callback({ success: false, error: 'Host only' });
+      if (room.status !== 'AUCTION') return callback && callback({ success: false, error: 'Auction is not currently in progress' });
+
+      if (!canConcludeEarly(room)) {
+        const minRequired = (room.settings && room.settings.minSquadSize) || 15;
+        return callback && callback({
+          success: false,
+          error: `All franchises must have at least ${minRequired} players before closing early.`
+        });
+      }
+
+      triggerAuctionEndSequence(room, 'Host concluded auction & finalized squads.');
+      if (typeof callback === 'function') callback({ success: true });
+    } catch (err) {
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
+  });
+
+  // 6. Place Bid (Synchronous Atomic Handling)
   socket.on('place_bid', ({ expectedCurrentBid }, callback) => {
     try {
       const roomCode = socket.roomCode;
@@ -468,91 +729,81 @@ io.on('connection', (socket) => {
       }
 
       const team = room.teams.get(socket.id);
-      if (!team) return callback && callback({ success: false, error: 'You must select a team to bid!' });
+      if (!team) return callback && callback({ success: false, error: 'You have not claimed a team franchise.' });
 
-      // Concurrency check
-      if (expectedCurrentBid !== undefined && expectedCurrentBid !== room.currentBid) {
-        return callback && callback({
-          success: false,
-          error: 'Bid rejected: Price increased',
-          serverCurrentBid: room.currentBid
-        });
-      }
-
-      // Already highest bidder check
+      // Guard: Highest bidder cannot bid against themselves
       if (room.highestBidder && room.highestBidder.socketId === socket.id) {
-        return callback && callback({ success: false, error: 'Your team is already the highest bidder!' });
+        return callback && callback({ success: false, error: 'You already hold the highest bid!' });
       }
 
-      // Next bid amount
+      // Check max squad size
+      if (team.squad.length >= room.settings.maxSquadSize) {
+        return callback && callback({ success: false, error: `Squad capacity full (${room.settings.maxSquadSize} max)!` });
+      }
+
+      // Check overseas limit
+      if (room.currentPlayer.isOverseas && team.overseasCount >= room.settings.maxOverseas) {
+        return callback && callback({ success: false, error: `Overseas player limit reached (${room.settings.maxOverseas} max)!` });
+      }
+
+      // Calculate next bid amount
       let nextBidAmount;
       if (!room.highestBidder) {
-        // First bid starts at Base Price!
         nextBidAmount = room.currentPlayer.basePrice;
       } else {
-        const increment = calculateIncrement(room.currentBid);
-        nextBidAmount = room.currentBid + increment;
+        const inc = calculateIncrement(room.currentBid);
+        nextBidAmount = room.currentBid + inc;
       }
 
-      // Purse check
+      // Outbid collision check
+      if (expectedCurrentBid !== undefined && expectedCurrentBid !== null) {
+        if (room.highestBidder && expectedCurrentBid < room.currentBid) {
+          return callback && callback({ 
+            success: false, 
+            error: `Outbid! Price is now ₹${(room.currentBid / 10000000).toFixed(2)} Cr.`,
+            currentBid: room.currentBid,
+            nextExpectedBid: nextBidAmount
+          });
+        }
+      }
+
+      // Purse balance validation
       if (team.purse < nextBidAmount) {
-        return callback && callback({
-          success: false,
-          error: `Insufficient purse! Needed ₹${(nextBidAmount / 10000000).toFixed(2)} Cr.`
+        return callback && callback({ 
+          success: false, 
+          error: `Insufficient purse! Needed: ₹${(nextBidAmount / 10000000).toFixed(2)} Cr, Available: ₹${(team.purse / 10000000).toFixed(2)} Cr.` 
         });
       }
 
-      // Squad slot check
-      if (team.squad.length >= room.settings.maxSquadSize) {
-        return callback && callback({ success: false, error: `Squad full (${room.settings.maxSquadSize} max)!` });
-      }
-
-      // Overseas check
-      if (room.currentPlayer.isOverseas && team.overseasCount >= room.settings.maxOverseas) {
-        return callback && callback({ success: false, error: `Overseas quota full (${room.settings.maxOverseas} max)!` });
-      }
-
-      // Buffer purse reserve check (reserve 20L per remaining unfilled slot)
-      const remainingSlots = room.settings.maxSquadSize - team.squad.length - 1;
-      const minRequiredBuffer = remainingSlots * 2000000;
-      if ((team.purse - nextBidAmount) < minRequiredBuffer && remainingSlots > 0) {
-        return callback && callback({
-          success: false,
-          error: `Reserve needed: Keep ₹${(minRequiredBuffer / 10000000).toFixed(2)} Cr to complete squad!`
-        });
-      }
-
-      // Accept Bid!
+      // Atomic state update
       room.currentBid = nextBidAmount;
       room.highestBidder = {
         socketId: socket.id,
         teamId: team.franchiseId,
         teamName: team.name,
-        color: team.color,
+        managerName: team.managerName,
         logo: team.logo,
-        managerName: team.managerName
+        color: team.color
       };
 
-      // Reset team folds since price changed
-      if (room.foldedTeams) room.foldedTeams.clear();
-
-      // Starts/Resets countdown timer to 15s ONLY AFTER a bid is placed!
-      startCountdown(room);
+      // Reset consensus folds for new price point
+      room.foldedTeams = new Set();
 
       addRoomLog(
         room,
-        `💰 ${team.franchiseId} bid ₹${(nextBidAmount / 10000000).toFixed(2)} Cr for ${room.currentPlayer.name}`,
+        `💰 ${team.name} (${team.franchiseId}) raised bid to ₹${(nextBidAmount / 10000000).toFixed(2)} Cr!`,
         'bid',
-        { playerName: room.currentPlayer.name, teamId: team.franchiseId, teamName: team.name, amount: nextBidAmount }
+        { teamName: team.name, teamId: team.franchiseId, bid: nextBidAmount }
       );
+
+      // Reset countdown to 15 seconds
+      startCountdown(room);
 
       io.to(room.code).emit('bid_accepted', {
         currentBid: room.currentBid,
         highestBidder: room.highestBidder,
-        nextIncrement: calculateIncrement(room.currentBid),
-        timerSeconds: 15
+        nextIncrement: calculateIncrement(room.currentBid)
       });
-      broadcastRoomUpdate(room.code);
 
       if (typeof callback === 'function') {
         callback({ success: true, currentBid: room.currentBid });
@@ -562,27 +813,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 7. Host Skip / Pass Player
+  // 7. Host Skip Player
   socket.on('skip_player', (_, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
       if (socket.id !== room.hostId) return callback && callback({ success: false, error: 'Host only' });
+      if (room.status !== 'AUCTION' || !room.currentPlayer) {
+        return callback && callback({ success: false, error: 'No player on hammer to skip' });
+      }
 
-      if (!room.currentPlayer) return callback && callback({ success: false, error: 'No active player to skip' });
+      clearRoomTimer(room);
 
-      // Save state into skipHistory for Undo
+      // Save to skip history stack for undo
       room.skipHistory.push({
-        auctionIndex: room.auctionIndex,
         player: room.currentPlayer,
-        currentBid: room.currentBid,
-        highestBidder: room.highestBidder
+        auctionIndex: room.auctionIndex
       });
 
-      addRoomLog(room, `⏩ Host skipped ${room.currentPlayer.name}`, 'warning');
-      clearRoomTimer(room);
-      handlePlayerSoldOrUnsold(room);
+      addRoomLog(room, `⏩ Host skipped ${room.currentPlayer.name}. Pushed to end of pool.`, 'warning');
+
+      room.playerPool.push(room.currentPlayer);
+      advanceToNextPlayer(room);
 
       if (typeof callback === 'function') callback({ success: true });
     } catch (err) {
@@ -590,37 +843,33 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 8. Host Undo Skip Player
+  // 8. Host Undo Skip
   socket.on('undo_skip_player', (_, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
       if (socket.id !== room.hostId) return callback && callback({ success: false, error: 'Host only' });
-
       if (room.skipHistory.length === 0) {
-        return callback && callback({ success: false, error: 'No recently skipped player to restore' });
+        return callback && callback({ success: false, error: 'No skipped player to undo' });
       }
 
-      const lastSkipped = room.skipHistory.pop();
       clearRoomTimer(room);
 
-      // Re-insert player at current index
-      room.playerPool.splice(room.auctionIndex, 0, lastSkipped.player);
+      const lastSkipped = room.skipHistory.pop();
+      room.playerPool.pop(); // Remove the duplicated entry pushed to the end
+
       room.currentPlayer = lastSkipped.player;
       room.currentBid = lastSkipped.player.basePrice;
       room.highestBidder = null;
       room.timerSeconds = 15;
       room.isTimerRunning = false;
+      room.foldedTeams = new Set();
 
-      // Remove from unsold list if it was recorded
-      const uIndex = room.unsoldPlayers.findIndex(p => p.id === lastSkipped.player.id);
-      if (uIndex !== -1) room.unsoldPlayers.splice(uIndex, 1);
+      addRoomLog(room, `⏪ Host restored skipped star: ${lastSkipped.player.name}!`, 'announcement');
+      broadcastRoomUpdate(roomCode);
 
-      addRoomLog(room, `↩️ Host UNDID the skip! Restored ${lastSkipped.player.name} to the auction hammer.`, 'announcement');
-      broadcastRoomUpdate(room.code);
-
-      if (typeof callback === 'function') callback({ success: true });
+      if (typeof callback === 'function') callback({ success: true, player: lastSkipped.player });
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
     }
@@ -639,13 +888,12 @@ io.on('connection', (socket) => {
       const team = room.teams.get(socket.id);
       if (!team) return callback && callback({ success: false, error: 'Select a team first' });
 
-      // Strict security: Leading/Highest bidder CANNOT fold against their own bid!
+      // Security: Leading/Highest bidder CANNOT fold against their own bid!
       if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
         return callback && callback({ success: false, error: 'You are the highest bidder! Leading team cannot fold.' });
       }
 
       if (!room.foldedTeams) room.foldedTeams = new Set();
-      // Ensure highest bidder is never accidentally in the folded set
       if (room.highestBidder) {
         room.foldedTeams.delete(room.highestBidder.teamId);
       }
@@ -657,19 +905,15 @@ io.on('connection', (socket) => {
         'info'
       );
 
-      // Check consensus:
-      // Required folds: if there's a highest bidder, everyone else must fold (teams.size - 1).
-      // If no highest bidder, all teams must fold (teams.size).
       const requiredFolds = room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1);
 
-      // If consensus reached among remaining teams:
-      if (room.teams.size > 1 && room.foldedTeams.size >= requiredFolds) {
+      if (room.foldedTeams.size >= requiredFolds) {
+        clearRoomTimer(room);
         addRoomLog(
           room,
-          `⚡ ALL REMAINING TEAMS FOLDED! Instant hammer fall for ${room.currentPlayer.name}!`,
+          `⚡ Consensus reached! All non-leading franchises folded on ${room.currentPlayer.name}. Instant hammer!`,
           'announcement'
         );
-        clearRoomTimer(room);
         io.to(room.code).emit('all_teams_folded', {
           player: room.currentPlayer,
           highestBidder: room.highestBidder
@@ -704,14 +948,38 @@ io.on('connection', (socket) => {
         room.hostId = remainingSockets[0];
         addRoomLog(room, `👑 Host disconnected. New host assigned.`);
       } else {
-        clearRoomTimer(room);
-        rooms.delete(roomCode);
-        console.log(`[CLEANUP] Room ${roomCode} wiped from memory.`);
-        return;
+        // Cache grace period: keep room alive for 5 minutes in memory so user can reconnect without losing progress
+        if (!room.cleanupTimer) {
+          room.cleanupTimer = setTimeout(() => {
+            const currentSockets = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
+            if (currentSockets.length === 0) {
+              clearRoomTimer(room);
+              rooms.delete(roomCode);
+              console.log(`[CLEANUP] Room ${roomCode} wiped from memory after 5 min idle.`);
+            }
+          }, 5 * 60 * 1000);
+        }
       }
     }
 
     broadcastRoomUpdate(roomCode);
+  });
+
+  // 11. Leave Match (Explicit Cleanup)
+  socket.on('leave_match', ({ sessionToken }, callback) => {
+    try {
+      const roomCode = socket.roomCode;
+      if (sessionToken && sessionRegistry.has(sessionToken)) {
+        sessionRegistry.delete(sessionToken);
+      }
+      if (roomCode) {
+        socket.leave(roomCode);
+        socket.roomCode = null;
+      }
+      if (typeof callback === 'function') callback({ success: true });
+    } catch (err) {
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
   });
 });
 

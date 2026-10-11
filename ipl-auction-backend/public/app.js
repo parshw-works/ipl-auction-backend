@@ -75,6 +75,7 @@ function initSocket() {
     socket.on('connect', () => {
       console.log('[IPL] Connected to cloud! Socket ID:', socket.id);
       updateServerUI('connected', 'Cloud Live');
+      attemptSessionReentry();
     });
 
     socket.on('connect_error', (err) => {
@@ -411,12 +412,152 @@ function setFranchiseAura(franchiseId) {
   }
 }
 
-// Micro-Shake Trigger
+// Session Cache & Restore Elements
+const sessionRestoreBanner = document.getElementById('sessionRestoreBanner');
+const sessionRestoreDetails = document.getElementById('sessionRestoreDetails');
+const btnDismissRestore = document.getElementById('btnDismissRestore');
+if (btnDismissRestore) {
+  btnDismissRestore.addEventListener('click', () => {
+    if (sessionRestoreBanner) sessionRestoreBanner.classList.add('hidden');
+  });
+}
+
+// Deterministic Session Memory (sessionStorage strictly)
+const SESSION_STORAGE_KEY = 'ipl_session';
+
+function generateClientSessionToken() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'tok_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now();
+}
+
+function getStoredSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveCurrentSession(roomId, managerName, teamId, token) {
+  try {
+    if (!roomId) return;
+    const existing = getStoredSession() || {};
+    const sessionData = {
+      roomId: roomId.toUpperCase().trim(),
+      managerName: (managerName || existing.managerName || 'Manager').trim(),
+      teamId: teamId || existing.teamId || null,
+      sessionToken: token || existing.sessionToken || generateClientSessionToken()
+    };
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
+    return sessionData;
+  } catch (e) {
+    console.warn('[Session] Could not write sessionStorage:', e);
+  }
+}
+
+function clearCurrentSession() {
+  try {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    if (sessionRestoreBanner) sessionRestoreBanner.classList.add('hidden');
+  } catch (e) {}
+}
+
+function performSessionCleanupBeforeNewMatch() {
+  try {
+    const current = getStoredSession();
+    if (current && socket && socket.connected) {
+      socket.emit('leave_match', { sessionToken: current.sessionToken });
+    }
+  } catch (e) {}
+  clearCurrentSession();
+  currentRoom = null;
+  myTeam = null;
+  isHost = false;
+  mySelectedRetentions = [];
+  currentFranchiseRoster = [];
+  if (userFranchisePill) {
+    userFranchisePill.classList.add('hidden');
+    userFranchisePill.classList.remove('flex');
+  }
+  if (roomBadge) roomBadge.classList.add('hidden');
+}
+
+let isRestoringSession = false;
+function attemptSessionReentry() {
+  if (isRestoringSession) return;
+  const session = getStoredSession();
+  if (!session || !session.roomId) return;
+
+  const s = socket || initSocket();
+  if (!s) return;
+
+  isRestoringSession = true;
+  showToast(`Restoring War Room session ${session.roomId}...`, 'info');
+
+  s.emit('reconnect_player', {
+    roomId: session.roomId,
+    roomCode: session.roomId,
+    sessionToken: session.sessionToken,
+    teamId: session.teamId,
+    franchiseId: session.teamId,
+    managerName: session.managerName
+  }, (res) => {
+    isRestoringSession = false;
+    if (res && res.success) {
+      currentRoom = res.roomState;
+      isHost = (s.id === currentRoom.hostId);
+      if (res.team) {
+        myTeam = res.team;
+      }
+      if (res.franchiseRoster) {
+        currentFranchiseRoster = res.franchiseRoster;
+      }
+      if (res.sessionToken) {
+        saveCurrentSession(currentRoom.code, session.managerName, myTeam ? myTeam.franchiseId : null, res.sessionToken);
+      }
+
+      if (roomBadge && currentRoomCode) {
+        roomBadge.classList.remove('hidden');
+        currentRoomCode.textContent = currentRoom.code;
+      }
+
+      if (myTeam) {
+        updateUserFranchisePill();
+        setFranchiseAura(myTeam.franchiseId);
+      }
+
+      if (currentRoom.status === 'AUCTION') {
+        showView('auction');
+        updateAuctionView(currentRoom);
+      } else if (currentRoom.status === 'FINISHED') {
+        showView('podium');
+        renderPodium(currentRoom.standings || []);
+      } else {
+        setupLobby();
+      }
+
+      showToast('Welcome back! War Room session restored.', 'success');
+      playBeep(600, 'sine', 0.2);
+    } else {
+      clearCurrentSession();
+    }
+  });
+}
+
+
+// Micro-Shake Trigger (Optimized: targets viewAuction container directly to prevent reflowing entire document)
 function triggerScreenMicroShake() {
-  document.body.classList.remove('shake-active');
-  void document.body.offsetWidth; // trigger reflow
-  document.body.classList.add('shake-active');
-  setTimeout(() => document.body.classList.remove('shake-active'), 260);
+  const target = document.getElementById('viewAuction') || viewAuction;
+  if (!target) return;
+  target.classList.remove('shake-active');
+  requestAnimationFrame(() => {
+    target.classList.add('shake-active');
+    setTimeout(() => target.classList.remove('shake-active'), 240);
+  });
 }
 
 // Floating Currency Feedback Animation (+₹25 L or +₹1 Cr)
@@ -445,17 +586,70 @@ toggleVoiceBtn.addEventListener('click', () => {
 });
 
 // View Navigation
-function switchView(viewName) {
-  viewWelcome.classList.add('hidden');
-  viewLobby.classList.add('hidden');
-  viewAuction.classList.add('hidden');
-  viewFinished.classList.add('hidden');
+// SPA State Router (Single-Page Application Navigation without reloads)
+let currentViewState = 'home';
 
-  if (viewName === 'WELCOME') viewWelcome.classList.remove('hidden');
-  if (viewName === 'LOBBY') viewLobby.classList.remove('hidden');
-  if (viewName === 'AUCTION') viewAuction.classList.remove('hidden');
-  if (viewName === 'FINISHED') viewFinished.classList.remove('hidden');
+function showView(viewName) {
+  const norm = String(viewName).toLowerCase().replace('view-', '').replace('view', '');
+  
+  // Guard against navigating to lobby if match is already live
+  if (norm === 'lobby' && currentRoom && currentRoom.isStarted) {
+    if (lobbyMatchLockBanner) {
+      lobbyMatchLockBanner.classList.remove('hidden');
+    }
+  } else if (lobbyMatchLockBanner) {
+    lobbyMatchLockBanner.classList.add('hidden');
+  }
+
+  // Update DOM containers
+  if (viewWelcome) viewWelcome.classList.add('hidden');
+  if (viewLobby) viewLobby.classList.add('hidden');
+  if (viewAuction) viewAuction.classList.add('hidden');
+  if (viewFinished) viewFinished.classList.add('hidden');
+
+  if (norm === 'home' || norm === 'welcome') {
+    currentViewState = 'home';
+    if (viewWelcome) viewWelcome.classList.remove('hidden');
+    if (window.location.hash !== '#home') history.replaceState(null, '', '#home');
+  } else if (norm === 'lobby') {
+    currentViewState = 'lobby';
+    if (viewLobby) viewLobby.classList.remove('hidden');
+    if (window.location.hash !== '#lobby') history.replaceState(null, '', '#lobby');
+  } else if (norm === 'auction') {
+    currentViewState = 'auction';
+    if (viewAuction) viewAuction.classList.remove('hidden');
+    if (window.location.hash !== '#auction') history.replaceState(null, '', '#auction');
+  } else if (norm === 'podium' || norm === 'finished') {
+    currentViewState = 'podium';
+    if (viewFinished) viewFinished.classList.remove('hidden');
+    if (window.location.hash !== '#podium') history.replaceState(null, '', '#podium');
+  }
 }
+
+// Backward compatibility alias for existing callers
+function switchView(viewName) {
+  showView(viewName);
+}
+
+// Hash change listener for browser back/forward buttons
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.replace('#', '').toLowerCase();
+  if (['home', 'welcome'].includes(hash)) {
+    // If user returns home, do not force-disconnect unless they start a new match
+    showView('home');
+  } else if (hash === 'lobby') {
+    if (currentRoom && currentRoom.isStarted) {
+      showToast('Match is currently live! Franchise changes are locked.', 'warning');
+      showView('auction');
+    } else {
+      showView('lobby');
+    }
+  } else if (hash === 'auction') {
+    showView('auction');
+  } else if (['podium', 'finished'].includes(hash)) {
+    showView('podium');
+  }
+});
 
 // Toast Notifications
 function showToast(message, type = 'info') {
@@ -514,6 +708,9 @@ btnSubmitCreateRoom.addEventListener('click', () => {
     showToast('Cloud server is still spinning up. Please try again in a moment.', 'warning');
   }, 15000);
 
+  performSessionCleanupBeforeNewMatch();
+  const inputMinSquadEl = document.getElementById('inputMinSquad');
+  const minSquadSize = inputMinSquadEl ? inputMinSquadEl.value : 15;
   const initialPurse = document.getElementById('selectInitialPurse').value;
   const retentionsAllowed = document.getElementById('selectRetentionsAllowed').value;
   const maxSquadSize = document.getElementById('inputMaxSquad').value;
@@ -524,6 +721,7 @@ btnSubmitCreateRoom.addEventListener('click', () => {
       initialPurse,
       retentionsAllowed,
       maxSquadSize,
+      minSquadSize,
       maxOverseas
     }, (res) => {
       clearTimeout(timeout);
@@ -533,6 +731,7 @@ btnSubmitCreateRoom.addEventListener('click', () => {
       if (res && res.success) {
         currentRoom = res.roomState;
         isHost = true;
+        saveCurrentSession(res.roomCode, inputManagerName.value, null, res.sessionToken);
         setupLobby();
         showToast(`Room created! Code: ${res.roomCode}`, 'success');
       } else {
@@ -576,6 +775,7 @@ btnSubmitJoinRoom.addEventListener('click', () => {
     showToast('Server response timed out. Please check your room code or connection.', 'warning');
   }, 12000);
 
+  performSessionCleanupBeforeNewMatch();
   const performJoin = () => {
     socket.emit('join_room', { roomCode }, (res) => {
       clearTimeout(timeout);
@@ -585,6 +785,7 @@ btnSubmitJoinRoom.addEventListener('click', () => {
       if (res && res.success) {
         currentRoom = res.roomState;
         isHost = currentRoom.hostId === socket.id;
+        saveCurrentSession(roomCode, inputManagerName.value, null, res.sessionToken);
         setupLobby();
         showToast(`Joined room [${roomCode}]!`, 'success');
       } else {
@@ -699,6 +900,7 @@ function selectFranchise(franchiseId) {
       myTeam = res.team;
       currentFranchiseRoster = res.franchiseRoster || [];
       mySelectedRetentions = res.team.retentions || [];
+      saveCurrentSession(currentRoom.code, managerName, myTeam.franchiseId);
       updateUserFranchisePill();
       renderFranchiseGrid();
       updateLobbyRetentionBanner();
@@ -769,7 +971,7 @@ function openRetentionModal(roster = null) {
     currentFranchiseRoster = roster;
     setupModalUI();
   } else if (!currentFranchiseRoster || currentFranchiseRoster.length === 0) {
-    fetch(`${ACTIVE_BACKEND}/api/franchise-players/${myTeam.franchiseId}`)
+    fetch(`${CLOUD_BACKEND_URL}/api/franchise-players/${myTeam.franchiseId}`)
       .then(r => r.json())
       .then(players => {
         currentFranchiseRoster = players;
@@ -1035,7 +1237,7 @@ function updateAuctionView(room) {
   playerBatBowlStyle.textContent = `${player.stats.battingStyle || 'Right hand Bat'} • ${player.stats.bowlingStyle || 'Right arm Medium'}`;
   playerRoleBadge.textContent = player.role;
   playerCountryBadge.textContent = player.isOverseas ? `✈️ ${player.country}` : `🇮🇳 ${player.country}`;
-  playerTierBadge.textContent = `${player.tier} (${room.auctionIndex + 1}/${room.totalPlayers})`;
+  playerTierBadge.innerHTML = `${player.tier} • ★ ${player.rating || 75}/100 <span class="text-[10px] opacity-75 font-mono">(${room.auctionIndex + 1}/${room.totalPlayers})</span>`;
   playerOriginalTeam.textContent = player.originalTeam || 'None';
   playerBasePrice.textContent = formatCurrency(player.basePrice);
 
@@ -1084,6 +1286,22 @@ function updateAuctionView(room) {
   }
 
   // Host Undo Skip visibility
+  
+  if (isHost && btnHostConcludeAuction) {
+    btnHostConcludeAuction.classList.remove('hidden');
+    btnHostConcludeAuction.classList.add('flex');
+    const minSquad = (room.settings && room.settings.minSquadSize) || 15;
+    const canConclude = (room.teams || []).length > 0 && (room.teams || []).every(t => (t.squadCount || t.squad.length) >= minSquad);
+    btnHostConcludeAuction.disabled = !canConclude;
+    if (!canConclude) {
+      btnHostConcludeAuction.title = `Unlocked once all teams have ${minSquad}+ players`;
+    } else {
+      btnHostConcludeAuction.title = 'Conclude Auction & Finalize Squads';
+    }
+  } else if (btnHostConcludeAuction) {
+    btnHostConcludeAuction.classList.add('hidden');
+  }
+
   if (isHost && room.canUndoSkip) {
     btnHostUndoSkipPlayer.classList.remove('hidden');
     btnHostUndoSkipPlayer.classList.add('flex');
@@ -1301,13 +1519,26 @@ function updateDrawerTeams() {
 function openSquadModal(team) {
   modalTeamLogoImg.src = team.logo || `/logos/${team.franchiseId}.svg`;
   modalTeamName.textContent = team.name;
-  modalTeamPurse.textContent = `Remaining Purse: ${formatCurrency(team.purse)} | Squad: ${team.squad.length}/${currentRoom.settings.maxSquadSize}`;
+  
+  const squad = team.squad || [];
+  const totalRating = squad.reduce((sum, p) => sum + (p.rating || 75), 0);
+  const avgRating = squad.length > 0 ? (totalRating / squad.length).toFixed(1) : 0;
+  
+  modalTeamPurse.innerHTML = `
+    <span>Purse: <b class="text-victoryEmerald font-mono">${formatCurrency(team.purse)}</b></span>
+    <span class="text-slate-600">•</span>
+    <span>Squad: <b class="text-white font-mono">${squad.length}/${(currentRoom && currentRoom.settings) ? currentRoom.settings.maxSquadSize : 25}</b></span>
+    <span class="text-slate-600">•</span>
+    <span>Points: <b class="text-amber-400 font-mono font-bold">${totalRating} pts (Avg: ${avgRating})</b></span>
+  `;
 
   modalSquadList.innerHTML = '';
-  if (team.squad.length === 0) {
+  if (squad.length === 0) {
     modalSquadList.innerHTML = '<div class="text-center py-8 text-xs text-slate-500 font-sans">No players acquired yet in this auction.</div>';
   } else {
-    team.squad.forEach((player, i) => {
+    squad.forEach((player, i) => {
+      const rating = player.rating || 75;
+      const ratingColor = rating >= 90 ? 'bg-amber-400 text-slate-950' : rating >= 80 ? 'bg-cyan-500/20 text-laserCyan border border-cyan-400/40' : 'bg-slate-800 text-slate-300';
       const row = document.createElement('div');
       row.className = 'p-3 rounded-2xl bg-[#090e1f] border border-white/10 flex items-center justify-between text-xs hover:border-white/20 transition';
       row.innerHTML = `
@@ -1317,6 +1548,7 @@ function openSquadModal(team) {
           <div>
             <div class="font-black font-display text-white flex items-center space-x-1.5 uppercase tracking-wide">
               <span>${player.name}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full font-black font-display ${ratingColor}">★ ${rating}</span>
               ${player.isOverseas ? '<span class="text-[9px] px-1 rounded bg-blue-500/30 text-laserCyan font-mono">OS</span>' : ''}
               ${player.acquiredVia === 'RETENTION' ? '<span class="text-[9px] px-1 rounded bg-amber-500/25 text-amber-300 font-display font-bold">RETAINED</span>' : ''}
             </div>
@@ -1415,6 +1647,224 @@ function renderLogEntry(entry) {
   fullLogsFeed.prepend(row);
   liveFeedTicker.textContent = entry.message;
 }
+
+
+// Wire up Navigation Guards & Interactive Control Elements
+const lobbyMatchLockBanner = document.getElementById('lobbyMatchLockBanner');
+const btnReturnToLiveAuction = document.getElementById('btnReturnToLiveAuction');
+if (btnReturnToLiveAuction) {
+  btnReturnToLiveAuction.addEventListener('click', () => {
+    showView('auction');
+  });
+}
+
+const auctionConcludingBanner = document.getElementById('auctionConcludingBanner');
+const auctionConcludingText = document.getElementById('auctionConcludingText');
+const btnHostConcludeAuction = document.getElementById('btnHostConcludeAuction');
+
+if (btnHostConcludeAuction) {
+  btnHostConcludeAuction.addEventListener('click', () => {
+    if (!currentRoom || !isHost) return;
+    const minSquad = (currentRoom.settings && currentRoom.settings.minSquadSize) || 15;
+    const shortTeam = (currentRoom.teams || []).find(t => (t.squadCount || t.squad.length) < minSquad);
+    if (shortTeam) {
+      showToast(`Cannot conclude: ${shortTeam.name} has fewer than ${minSquad} players (${shortTeam.squadCount || shortTeam.squad.length}/${minSquad}).`, 'warning');
+      return;
+    }
+    if (!confirm('Conclude auction early and finalize official championship standings?')) return;
+    socket.emit('host_conclude_auction', {}, (res) => {
+      if (res && res.success) {
+        showToast('Auction concluded by Host! Standings finalizing...', 'info');
+      } else {
+        showToast(res ? res.error : 'Cannot conclude auction yet', 'warning');
+      }
+    });
+  });
+}
+
+// Return Home from Podium handler
+const btnReturnHomeFromPodium = document.getElementById('btnReturnHomeFromPodium');
+if (btnReturnHomeFromPodium) {
+  btnReturnHomeFromPodium.addEventListener('click', () => {
+    performSessionCleanupBeforeNewMatch();
+    showView('home');
+    showToast('Returned to Home Gateway. Previous session cleared.', 'info');
+  });
+}
+
+// OLYMPIC PODIUM & LEADERBOARD SYSTEM (0–100 Standardized Rating Engine)
+const podiumTop3Container = document.getElementById('podiumTop3Container');
+const podiumRestTableBody = document.getElementById('podiumRestTableBody');
+
+function renderPodium(standings) {
+  if (!standings || !Array.isArray(standings) || standings.length === 0) {
+    if (currentRoom && currentRoom.teams) {
+      standings = currentRoom.teams.map(t => {
+        const squad = t.squad || [];
+        const totalPoints = squad.reduce((sum, p) => sum + (p.rating || 75), 0);
+        return {
+          rank: 0,
+          teamId: t.franchiseId,
+          teamName: t.name,
+          managerName: t.managerName,
+          logo: t.logo || `/logos/${t.franchiseId}.svg`,
+          color: t.color || '#334155',
+          squadCount: squad.length,
+          remainingPurse: t.purse,
+          totalPoints,
+          squad
+        };
+      }).sort((a, b) => (b.totalPoints - a.totalPoints) || (b.remainingPurse - a.remainingPurse));
+      standings.forEach((s, idx) => s.rank = idx + 1);
+    } else {
+      return;
+    }
+  }
+
+  showView('podium');
+
+  const top3 = standings.slice(0, 3);
+  const rest = standings.slice(3);
+
+  // Trigger celebration effects
+  if (typeof confetti === 'function') {
+    confetti({ particleCount: 220, spread: 120, origin: { y: 0.55 } });
+    setTimeout(() => {
+      confetti({ particleCount: 150, angle: 60, spread: 70, origin: { x: 0.1, y: 0.6 } });
+      confetti({ particleCount: 150, angle: 120, spread: 70, origin: { x: 0.9, y: 0.6 } });
+    }, 450);
+  }
+
+  const champion = top3[0];
+  if (champion) {
+    speakCommentary(`Congratulations to ${champion.teamName} and Manager ${champion.managerName} for clinching the IPL Mega Auction Championship title!`);
+  }
+
+  // Render Top 3 Olympic Pedestal
+  // Layout order: 2nd place (Left), 1st place (Center elevated), 3rd place (Right)
+  if (podiumTop3Container) {
+    podiumTop3Container.innerHTML = '';
+
+    const first = top3[0];
+    const second = top3[1];
+    const third = top3[2];
+
+    const cardsHtml = [];
+
+    // 2nd Place (Silver)
+    if (second) {
+      cardsHtml.push(`
+        <div class="order-2 md:order-1 flex-1 max-w-[260px] w-full flex flex-col items-center">
+          <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-slate-300 shadow-xl mb-2 flex items-center justify-center relative">
+            <span class="absolute -top-3 -right-2 w-7 h-7 rounded-full bg-slate-300 text-slate-950 font-black font-display text-xs flex items-center justify-center shadow-lg border-2 border-white">2</span>
+            <img src="${second.logo}" alt="${second.teamId}" class="w-full h-full object-contain filter drop-shadow" />
+          </div>
+          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${second.teamId}</div>
+          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${second.managerName}</div>
+          
+          <!-- Silver Pedestal Box -->
+          <div class="w-full h-36 sm:h-44 rounded-3xl pedestal-silver mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${second.teamId}')">
+            <div class="text-[10px] font-display font-bold tracking-widest text-slate-300 uppercase">RUNNER UP</div>
+            <div class="my-auto">
+              <div class="text-2xl sm:text-3xl font-black font-display text-white tracking-tight">${second.totalPoints}</div>
+              <div class="text-[10px] font-display uppercase tracking-wider text-slate-400">Total Points</div>
+            </div>
+            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(second.remainingPurse)} Left</div>
+          </div>
+        </div>
+      `);
+    }
+
+    // 1st Place (Gold Center)
+    if (first) {
+      cardsHtml.push(`
+        <div class="order-1 md:order-2 flex-1 max-w-[290px] w-full flex flex-col items-center -mt-3 md:-mt-6 z-10">
+          <div class="crown-float text-amber-400 text-2xl sm:text-3xl mb-1 filter drop-shadow-[0_0_12px_rgba(255,184,0,0.8)]">
+            <i class="fa-solid fa-crown"></i>
+          </div>
+          <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl p-2.5 bg-gradient-to-b from-amber-500/30 to-[#0e1838] border-2 border-amber-400 shadow-2xl shadow-amber-500/40 mb-2 flex items-center justify-center relative">
+            <span class="absolute -top-3.5 -right-2.5 w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-300 text-slate-950 font-black font-display text-sm flex items-center justify-center shadow-2xl border-2 border-white">1</span>
+            <img src="${first.logo}" alt="${first.teamId}" class="w-full h-full object-contain filter drop-shadow-xl" />
+          </div>
+          <div class="font-display font-black text-base sm:text-lg text-amber-300 uppercase tracking-wider gold-foil-text">${first.teamName}</div>
+          <div class="text-xs text-slate-300 font-sans truncate max-w-full font-bold">${first.managerName}</div>
+          
+          <!-- Gold Pedestal Box -->
+          <div class="w-full h-48 sm:h-56 rounded-3xl pedestal-gold mt-2 p-3 sm:p-4 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${first.teamId}')">
+            <div class="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black font-display tracking-widest uppercase shadow">CHAMPION</div>
+            <div class="my-auto">
+              <div class="text-3xl sm:text-4xl font-black font-display text-white tracking-tight text-glow-gold">${first.totalPoints}</div>
+              <div class="text-[11px] font-display uppercase tracking-wider text-amber-200/80 font-bold">Total Squad Points</div>
+            </div>
+            <div class="text-xs font-mono text-emerald-300 font-bold bg-black/30 px-3 py-1 rounded-full border border-amber-400/30">${formatCurrency(first.remainingPurse)} Purse Left</div>
+          </div>
+        </div>
+      `);
+    }
+
+    // 3rd Place (Bronze)
+    if (third) {
+      cardsHtml.push(`
+        <div class="order-3 flex-1 max-w-[260px] w-full flex flex-col items-center">
+          <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-amber-700 shadow-xl mb-2 flex items-center justify-center relative">
+            <span class="absolute -top-3 -right-2 w-7 h-7 rounded-full bg-amber-700 text-white font-black font-display text-xs flex items-center justify-center shadow-lg border-2 border-white">3</span>
+            <img src="${third.logo}" alt="${third.teamId}" class="w-full h-full object-contain filter drop-shadow" />
+          </div>
+          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${third.teamId}</div>
+          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${third.managerName}</div>
+          
+          <!-- Bronze Pedestal Box -->
+          <div class="w-full h-32 sm:h-36 rounded-3xl pedestal-bronze mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${third.teamId}')">
+            <div class="text-[10px] font-display font-bold tracking-widest text-amber-500 uppercase">3RD PLACE</div>
+            <div class="my-auto">
+              <div class="text-2xl sm:text-3xl font-black font-display text-white tracking-tight">${third.totalPoints}</div>
+              <div class="text-[10px] font-display uppercase tracking-wider text-slate-400">Total Points</div>
+            </div>
+            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(third.remainingPurse)} Left</div>
+          </div>
+        </div>
+      `);
+    }
+
+    podiumTop3Container.innerHTML = cardsHtml.join('');
+  }
+
+  // Render Table Ranks 4–10
+  if (podiumRestTableBody) {
+    podiumRestTableBody.innerHTML = '';
+    if (rest.length === 0) {
+      podiumRestTableBody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-xs text-slate-500 font-sans">No additional franchises in this room.</td></tr>';
+    } else {
+      rest.forEach((team) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-white/5 transition cursor-pointer border-b border-white/5';
+        tr.onclick = () => inspectTeamById(team.teamId);
+        tr.innerHTML = `
+          <td class="py-3 px-3 font-mono font-bold text-slate-400 text-left">#${team.rank}</td>
+          <td class="py-3 px-3 text-left">
+            <div class="flex items-center space-x-2">
+              <img src="${team.logo}" alt="${team.teamId}" class="w-6 h-6 object-contain" />
+              <span class="font-display font-black text-white uppercase">${team.teamName}</span>
+            </div>
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-sans text-left">${team.managerName}</td>
+          <td class="py-3 px-3 text-center font-mono text-slate-300">${team.squadCount} players</td>
+          <td class="py-3 px-3 text-right font-mono text-victoryEmerald font-bold">${formatCurrency(team.remainingPurse)}</td>
+          <td class="py-3 px-3 text-right font-mono text-amber-400 font-black text-sm">${team.totalPoints} pts</td>
+        `;
+        podiumRestTableBody.appendChild(tr);
+      });
+    }
+  }
+}
+
+// Global inspect squad helper for podium clicks
+window.inspectTeamById = function(teamId) {
+  if (!currentRoom || !currentRoom.teams) return;
+  const team = currentRoom.teams.find(t => t.franchiseId === teamId);
+  if (team) openSquadModal(team);
+};
+
 
 // SOCKET.IO REAL-TIME LISTENERS
 function registerSocketAuctionListeners(s) {
@@ -1573,6 +2023,25 @@ function registerSocketAuctionListeners(s) {
       speakCommentary(`All teams have folded without any bids. ${player.name} goes unsold.`);
       showToast(`⚡ All teams folded! ${player.name} passed unsold!`, 'warning');
     }
+  });
+
+  
+  s.on('auction_concluding', ({ reason, countdown }) => {
+    if (auctionConcludingBanner) {
+      if (auctionConcludingText) {
+        auctionConcludingText.textContent = `AUCTION CONCLUDING in ${countdown || 5}s (${reason || 'Finalizing squads'})...`;
+      }
+      auctionConcludingBanner.classList.remove('hidden');
+    }
+    showToast(`Auction concluding! Tallying final standings in ${countdown || 5} seconds...`, 'warning');
+    playBeep(440, 'triangle', 0.4);
+  });
+
+  s.on('auction_concluded', ({ standings, roomState }) => {
+    if (auctionConcludingBanner) auctionConcludingBanner.classList.add('hidden');
+    if (roomState) currentRoom = roomState;
+    showToast('Auction concluded! Championship standings locked.', 'success');
+    renderPodium(standings);
   });
 
   s.on('new_log', (entry) => {
