@@ -105,9 +105,15 @@
       </button>
 
       <!-- Voice Commentator Toggle -->
-      <button id="toggleVoiceBtn" title="Voice Commentator" class="px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#0e172e] hover:bg-[#162347] text-amber-400 text-xs border border-white/10 flex items-center space-x-1.5 transition active:scale-95">
+      <button id="toggleVoiceBtn" title="Voice Commentator" class="px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#0e172e] hover:bg-[#162347] text-amber-400 text-xs border border-white/10 flex items-center space-x-1.5 transition active:scale-95 cursor-pointer">
         <i id="voiceIcon" class="fa-solid fa-volume-high text-xs"></i>
-        <span class="hidden sm:inline text-[11px] font-bold text-slate-300 font-display uppercase tracking-wider">Voice ON</span>
+        <span id="voiceText" class="hidden sm:inline text-[11px] font-bold text-slate-300 font-display uppercase tracking-wider">Voice ON</span>
+      </button>
+
+      <!-- Spectator Cheer FX Visibility Toggle -->
+      <button id="btnCheerToggle" title="Toggle Cheers" class="px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#0e172e] hover:bg-[#162347] text-laserCyan text-xs border border-white/10 flex items-center space-x-1.5 transition active:scale-95 cursor-pointer">
+        <i id="cheerToggleIcon" class="fa-solid fa-bullhorn text-xs"></i>
+        <span id="cheerToggleText" class="hidden sm:inline text-[11px] font-bold text-slate-300 font-display uppercase tracking-wider">Cheers: ON</span>
       </button>
 
       <!-- User Franchise Pill -->
@@ -674,7 +680,7 @@
     <!-- ========================================================================= -->
     <!-- VIEW 4: GRAND FINALE CHAMPIONSHIP PODIUM (PAGE 4: #podium)                -->
     <!-- ========================================================================= -->
-    <div id="viewFinished" class="hidden flex-1 flex flex-col items-center justify-start text-center p-3 sm:p-6 space-y-6 max-w-6xl w-full mx-auto">
+    <div id="viewFinished" data-view-alias="view-podium" class="hidden flex-1 flex flex-col items-center justify-start text-center p-3 sm:p-6 space-y-6 max-w-6xl w-full mx-auto">
       
       <!-- Championship Podium Header -->
       <div class="space-y-1">
@@ -909,10 +915,11 @@
     </div>
   </div>
 
-  <!-- FLOATING CHEER SPRITE REACTION LAYER -->
-  <div id="cheerReactionContainer" class="fixed inset-0 pointer-events-none z-50 overflow-hidden"></div>
+  <!-- FLOATING CHEER SPRITE REACTION LAYER (Full-screen overlay for both mobile and desktop) -->
+  <div id="cheerReactionContainer" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
+  <div id="cheer-particle-container" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
 
-  <script src="/app.js?v=20.0"></script>
+  <script src="/app.js?v=21.0"></script>
   <script>
     // WIPE ALL SERVICE WORKERS & ALL CACHES TO PREVENT ANY OLD CODE FREEZING
     if ('serviceWorker' in navigator) {

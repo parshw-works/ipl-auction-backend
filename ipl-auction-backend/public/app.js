@@ -121,7 +121,124 @@ let currentRetentionFilter = 'ALL';
 let currentRetentionSearch = '';
 const RETENTION_COSTS = [180000000, 140000000, 110000000, 180000000, 140000000];
 let isBidCooldown = false;
-let isVoiceEnabled = true;
+
+// =========================================================================
+// GLOBAL AUDIO & SPEECH ENGINE SINGLETON (localStorage persisted)
+// =========================================================================
+window.auctionAudio = {
+  voiceEnabled: (function() {
+    try {
+      const stored = localStorage.getItem('auction_voice_enabled');
+      return stored !== null ? stored === 'true' : true;
+    } catch (e) {
+      return true;
+    }
+  })(),
+  sfxEnabled: true,
+
+  toggleVoice() {
+    this.voiceEnabled = !this.voiceEnabled;
+    try {
+      localStorage.setItem('auction_voice_enabled', this.voiceEnabled.toString());
+    } catch (e) {}
+    if (!this.voiceEnabled && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    this.syncUI();
+    return this.voiceEnabled;
+  },
+
+  syncUI() {
+    const btns = document.querySelectorAll('#toggleVoiceBtn, #btn-voice-toggle');
+    btns.forEach(btn => {
+      const icon = btn.querySelector('i') || btn.querySelector('#voiceIcon');
+      const text = btn.querySelector('span') || btn.querySelector('#voiceText');
+      if (this.voiceEnabled) {
+        if (icon) icon.className = 'fa-solid fa-volume-high text-xs';
+        if (text) text.textContent = 'Voice ON';
+        btn.classList.remove('text-slate-500', 'border-white/5');
+        btn.classList.add('text-amber-400', 'border-white/10');
+      } else {
+        if (icon) icon.className = 'fa-solid fa-volume-xmark text-xs';
+        if (text) text.textContent = 'Voice MUTED';
+        btn.classList.remove('text-amber-400', 'border-white/10');
+        btn.classList.add('text-slate-500', 'border-white/5');
+      }
+    });
+  }
+};
+
+// Global User Settings Singleton (localStorage persisted)
+window.userSettings = {
+  showCheers: (function() {
+    try {
+      const stored = localStorage.getItem('auction_show_cheers');
+      return stored !== null ? stored === 'true' : true;
+    } catch (e) {
+      return true;
+    }
+  })(),
+
+  toggleCheers() {
+    this.showCheers = !this.showCheers;
+    try {
+      localStorage.setItem('auction_show_cheers', this.showCheers.toString());
+    } catch (e) {}
+    this.syncUI();
+    return this.showCheers;
+  },
+
+  syncUI() {
+    const btns = document.querySelectorAll('#btnCheerToggle');
+    btns.forEach(btn => {
+      const icon = btn.querySelector('#cheerToggleIcon') || btn.querySelector('i');
+      const text = btn.querySelector('#cheerToggleText') || btn.querySelector('span');
+      if (this.showCheers) {
+        if (icon) icon.className = 'fa-solid fa-bullhorn text-xs';
+        if (text) text.textContent = 'Cheers: ON';
+        btn.classList.remove('text-slate-500');
+        btn.classList.add('text-laserCyan');
+      } else {
+        if (icon) icon.className = 'fa-solid fa-bell-slash text-xs';
+        if (text) text.textContent = 'Cheers: OFF';
+        btn.classList.remove('text-laserCyan');
+        btn.classList.add('text-slate-500');
+      }
+    });
+  }
+};
+
+// Global Click Delegation on Document for Voice & Cheer Toggles
+document.addEventListener('click', (e) => {
+  const voiceTarget = e.target.closest('#toggleVoiceBtn, #btn-voice-toggle');
+  if (voiceTarget) {
+    e.preventDefault();
+    const enabled = window.auctionAudio.toggleVoice();
+    showToast(enabled ? 'Voice Commentator unmuted 🔊' : 'Voice Commentator muted 🔇', 'info');
+    return;
+  }
+
+  const cheerTarget = e.target.closest('#btnCheerToggle');
+  if (cheerTarget) {
+    e.preventDefault();
+    const enabled = window.userSettings.toggleCheers();
+    showToast(enabled ? 'Cheer FX visible 📣' : 'Cheer FX hidden 🔕', 'info');
+    return;
+  }
+});
+
+// Sync initial UI state after DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  window.auctionAudio.syncUI();
+  window.userSettings.syncUI();
+});
+setTimeout(() => {
+  window.auctionAudio.syncUI();
+  window.userSettings.syncUI();
+}, 200);
+
+// Backward compatibility accessor
+let isVoiceEnabled = window.auctionAudio.voiceEnabled;
 
 // Render Free-Tier Sleep Protection:
 // If completely idle for 5 minutes without creating/joining a room, disconnect to let Render sleep.
@@ -164,7 +281,7 @@ if (typeof io !== 'undefined') {
 
 // Web Speech API Voice Commentary Synthesizer
 function speakCommentary(text) {
-  if (!isVoiceEnabled || !('speechSynthesis' in window)) return;
+  if (!window.auctionAudio || !window.auctionAudio.voiceEnabled || !('speechSynthesis' in window)) return;
   try {
     window.speechSynthesis.cancel(); // clear queue for instant commentary
     const utterance = new SpeechSynthesisUtterance(text);
@@ -510,25 +627,26 @@ function renderOngoingMatches() {
       : `<span class="text-laserCyan font-bold font-display text-[11px]">👁️ Spectator</span>`;
 
     card.innerHTML = `
-      <div class="flex items-center space-x-2.5">
-        <div class="w-8 h-8 rounded-lg bg-[#05070e] border border-white/10 flex items-center justify-center p-1">
-          ${teamLogo ? `<img src="${teamLogo}" alt="${s.teamId}" class="w-full h-full object-contain" />` : '<span class="text-sm">👁️</span>'}
+      <div class="flex items-center space-x-2.5 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-[#05070e] border border-white/10 flex items-center justify-center p-1.5 flex-shrink-0">
+          ${teamLogo ? `<img src="${teamLogo}" alt="${s.teamId}" class="w-full h-full object-contain" />` : '<span class="text-base">👁️</span>'}
         </div>
-        <div>
+        <div class="min-w-0">
           <div class="flex items-center space-x-1.5">
-            <span class="font-mono font-bold text-white text-xs">${s.roomCode}</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="font-mono font-bold text-white text-xs tracking-wider">${s.roomCode}</span>
             <span class="text-slate-600">•</span>
             ${teamBadge}
           </div>
-          <div class="text-[10px] text-slate-400 font-sans">${s.managerName}</div>
+          <div class="text-[11px] text-slate-300 font-sans truncate font-medium">${s.managerName}</div>
         </div>
       </div>
-      <div class="flex items-center space-x-1.5">
-        <button class="btn-reenter-match px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-black text-[11px] uppercase tracking-wider active:scale-95 transition" data-code="${s.roomCode}">
-          Re-enter ➔
+      <div class="flex items-center space-x-2 flex-shrink-0">
+        <button class="btn-reenter-match min-h-[44px] px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 text-slate-950 font-display font-black text-xs uppercase tracking-wider active:scale-95 transition shadow-lg shadow-amber-500/20 flex items-center gap-1 cursor-pointer" data-code="${s.roomCode}">
+          <span>⚡ RESUME</span>
         </button>
-        <button class="btn-abandon-match p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-white/5 text-xs transition" title="Abandon Match" data-code="${s.roomCode}">
-          <i class="fa-solid fa-trash-can"></i>
+        <button class="btn-abandon-match min-h-[44px] min-w-[44px] px-2.5 py-2 text-slate-400 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 border border-white/10 hover:border-rose-500/30 text-xs transition flex items-center justify-center cursor-pointer" title="Leave Match" data-code="${s.roomCode}">
+          <i class="fa-solid fa-xmark text-sm"></i>
         </button>
       </div>
     `;
@@ -2189,8 +2307,7 @@ function renderPodium(standings) {
   const getTeamLogo = (t) => t.logo || `/logos/${getTeamTag(t)}.svg`;
   const getTeamPurse = (t) => (t.remainingPurse !== undefined && !isNaN(t.remainingPurse)) ? t.remainingPurse : (t.purse !== undefined && !isNaN(t.purse) ? t.purse : 0);
 
-  // Render Top 3 Olympic Pedestal
-  // Layout order: 2nd place (Left), 1st place (Center elevated), 3rd place (Right)
+  // Render Top 3 Podium (Responsive: Vertical Tier on Mobile, 3-Col Olympic on Desktop)
   if (podiumTop3Container) {
     podiumTop3Container.innerHTML = '';
 
@@ -2198,99 +2315,101 @@ function renderPodium(standings) {
     const second = top3[1];
     const third = top3[2];
 
-    const cardsHtml = [];
+    const tag1 = first ? getTeamTag(first) : null;
+    const name1 = first ? getTeamName(first) : '';
+    const logo1 = first ? getTeamLogo(first) : '';
+    const purse1 = first ? getTeamPurse(first) : 0;
 
-    // 2nd Place (Silver)
-    if (second) {
-      const tag2 = getTeamTag(second);
-      const name2 = getTeamName(second);
-      const logo2 = getTeamLogo(second);
-      const purse2 = getTeamPurse(second);
+    const tag2 = second ? getTeamTag(second) : null;
+    const name2 = second ? getTeamName(second) : '';
+    const logo2 = second ? getTeamLogo(second) : '';
+    const purse2 = second ? getTeamPurse(second) : 0;
 
-      cardsHtml.push(`
-        <div class="order-2 md:order-1 flex-1 max-w-[260px] w-full flex flex-col items-center">
-          <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-slate-300 shadow-xl mb-2 flex items-center justify-center relative">
-            <span class="absolute -top-3 -right-2 w-7 h-7 rounded-full bg-slate-300 text-slate-950 font-black font-display text-xs flex items-center justify-center shadow-lg border-2 border-white">2</span>
-            <img src="${logo2}" alt="${tag2}" class="w-full h-full object-contain filter drop-shadow" />
-          </div>
-          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${name2}</div>
-          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${second.managerName || 'Manager'} (${tag2})</div>
-          
-          <!-- Silver Pedestal Box -->
-          <div class="w-full h-36 sm:h-44 rounded-3xl pedestal-silver mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${tag2}')">
-            <div class="text-[10px] font-display font-bold tracking-widest text-slate-300 uppercase">RUNNER UP</div>
-            <div class="my-auto">
-              <div class="text-2xl sm:text-3xl font-black font-display text-white tracking-tight">${second.totalPoints}</div>
-              <div class="text-[10px] font-display uppercase tracking-wider text-slate-400">Total Points</div>
-            </div>
-            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(purse2)} Left</div>
-          </div>
-        </div>
-      `);
-    }
+    const tag3 = third ? getTeamTag(third) : null;
+    const name3 = third ? getTeamName(third) : '';
+    const logo3 = third ? getTeamLogo(third) : '';
+    const purse3 = third ? getTeamPurse(third) : 0;
 
-    // 1st Place (Gold Center)
-    if (first) {
-      const tag1 = getTeamTag(first);
-      const name1 = getTeamName(first);
-      const logo1 = getTeamLogo(first);
-      const purse1 = getTeamPurse(first);
-
-      cardsHtml.push(`
-        <div class="order-1 md:order-2 flex-1 max-w-[290px] w-full flex flex-col items-center -mt-3 md:-mt-6 z-10">
-          <div class="crown-float text-amber-400 text-2xl sm:text-3xl mb-1 filter drop-shadow-[0_0_12px_rgba(255,184,0,0.8)]">
+    podiumTop3Container.innerHTML = `
+      <div class="w-full max-w-4xl flex flex-col md:flex-row items-center md:items-end justify-center gap-3 sm:gap-6">
+        
+        <!-- RANK 1 CARD (TOP FULL-WIDTH ON MOBILE, CENTER ELEVATED ON DESKTOP) -->
+        ${first ? `
+        <div class="w-full md:flex-1 md:max-w-[310px] md:order-2 z-10 flex flex-col items-center">
+          <div class="crown-float text-amber-400 text-3xl sm:text-4xl mb-1 filter drop-shadow-[0_0_15px_rgba(255,184,0,0.85)]">
             <i class="fa-solid fa-crown"></i>
           </div>
           <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl p-2.5 bg-gradient-to-b from-amber-500/30 to-[#0e1838] border-2 border-amber-400 shadow-2xl shadow-amber-500/40 mb-2 flex items-center justify-center relative">
             <span class="absolute -top-3.5 -right-2.5 w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-300 text-slate-950 font-black font-display text-sm flex items-center justify-center shadow-2xl border-2 border-white">1</span>
             <img src="${logo1}" alt="${tag1}" class="w-full h-full object-contain filter drop-shadow-xl" />
           </div>
-          <div class="font-display font-black text-base sm:text-lg text-amber-300 uppercase tracking-wider gold-foil-text">${name1}</div>
-          <div class="text-xs text-slate-300 font-sans truncate max-w-full font-bold">${first.managerName || 'Manager'} (${tag1})</div>
-          
-          <!-- Gold Pedestal Box -->
-          <div class="w-full h-48 sm:h-56 rounded-3xl pedestal-gold mt-2 p-3 sm:p-4 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${tag1}')">
-            <div class="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black font-display tracking-widest uppercase shadow">CHAMPION</div>
-            <div class="my-auto">
-              <div class="text-3xl sm:text-4xl font-black font-display text-white tracking-tight text-glow-gold">${first.totalPoints}</div>
-              <div class="text-[11px] font-display uppercase tracking-wider text-amber-200/80 font-bold">Total Squad Points</div>
+          <div class="font-display font-black text-lg sm:text-xl text-amber-300 uppercase tracking-wider gold-foil-text text-center">${name1}</div>
+          <div class="text-xs sm:text-sm text-slate-300 font-sans truncate max-w-full font-bold mb-2">${first.managerName || 'Manager'} (${tag1})</div>
+
+          <div class="w-full rounded-3xl pedestal-gold p-4 sm:p-5 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition shadow-2xl border border-amber-400/50" onclick="inspectTeamById('${tag1}')">
+            <div class="px-3 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] sm:text-xs font-black font-display tracking-widest uppercase shadow">
+              🏆 CHAMPION
             </div>
-            <div class="text-xs font-mono text-emerald-300 font-bold bg-black/30 px-3 py-1 rounded-full border border-amber-400/30">${formatCurrency(purse1)} Purse Left</div>
+            <div class="my-3">
+              <div class="text-3xl sm:text-5xl font-black font-display text-white tracking-tight text-glow-gold">${first.totalPoints}</div>
+              <div class="text-xs font-display uppercase tracking-wider text-amber-200/90 font-bold">Total Squad Points</div>
+            </div>
+            <div class="w-full flex items-center justify-center gap-3 text-xs font-mono font-bold pt-2 border-t border-amber-400/20">
+              <span class="text-victoryEmerald">Purse: ${formatCurrency(purse1)}</span>
+              <span class="text-slate-500">•</span>
+              <span class="text-slate-300">${first.squadCount || (first.squad ? first.squad.length : 0)} Players</span>
+            </div>
           </div>
         </div>
-      `);
-    }
+        ` : ''}
 
-    // 3rd Place (Bronze)
-    if (third) {
-      const tag3 = getTeamTag(third);
-      const name3 = getTeamName(third);
-      const logo3 = getTeamLogo(third);
-      const purse3 = getTeamPurse(third);
-
-      cardsHtml.push(`
-        <div class="order-3 flex-1 max-w-[260px] w-full flex flex-col items-center">
-          <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-amber-700 shadow-xl mb-2 flex items-center justify-center relative">
-            <span class="absolute -top-3 -right-2 w-7 h-7 rounded-full bg-amber-700 text-white font-black font-display text-xs flex items-center justify-center shadow-lg border-2 border-white">3</span>
-            <img src="${logo3}" alt="${tag3}" class="w-full h-full object-contain filter drop-shadow" />
-          </div>
-          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${name3}</div>
-          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${third.managerName || 'Manager'} (${tag3})</div>
-          
-          <!-- Bronze Pedestal Box -->
-          <div class="w-full h-32 sm:h-36 rounded-3xl pedestal-bronze mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${tag3}')">
-            <div class="text-[10px] font-display font-bold tracking-widest text-amber-500 uppercase">3RD PLACE</div>
-            <div class="my-auto">
-              <div class="text-2xl sm:text-3xl font-black font-display text-white tracking-tight">${third.totalPoints}</div>
-              <div class="text-[10px] font-display uppercase tracking-wider text-slate-400">Total Points</div>
+        <!-- RUNNER-UP CARDS: 2-COLUMN GRID ON MOBILE (<768px), DESKTOP PARTICIPANTS IN 3-COL ROW -->
+        <div class="w-full grid grid-cols-2 gap-3 md:contents">
+          <!-- RANK 2 CARD (SILVER) -->
+          ${second ? `
+          <div class="w-full md:flex-1 md:max-w-[260px] md:order-1 flex flex-col items-center">
+            <div class="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-slate-300 shadow-xl mb-1.5 flex items-center justify-center relative">
+              <span class="absolute -top-2.5 -right-2 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-slate-300 text-slate-950 font-black font-display text-xs flex items-center justify-center shadow-lg border border-white">2</span>
+              <img src="${logo2}" alt="${tag2}" class="w-full h-full object-contain filter drop-shadow" />
             </div>
-            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(purse3)} Left</div>
-          </div>
-        </div>
-      `);
-    }
+            <div class="font-display font-black text-xs sm:text-base text-white uppercase tracking-wider text-center truncate max-w-full">${name2}</div>
+            <div class="text-[10px] sm:text-xs text-slate-400 font-sans truncate max-w-full mb-1.5">${second.managerName || 'Manager'} (${tag2})</div>
 
-    podiumTop3Container.innerHTML = cardsHtml.join('');
+            <div class="w-full rounded-2xl sm:rounded-3xl pedestal-silver p-3 sm:p-4 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition shadow-xl" onclick="inspectTeamById('${tag2}')">
+              <div class="text-[9px] sm:text-[10px] font-display font-bold tracking-widest text-slate-300 uppercase">RUNNER UP</div>
+              <div class="my-2">
+                <div class="text-xl sm:text-3xl font-black font-display text-white tracking-tight">${second.totalPoints}</div>
+                <div class="text-[9px] sm:text-[10px] font-display uppercase tracking-wider text-slate-400">Squad Points</div>
+              </div>
+              <div class="text-[10px] sm:text-xs font-mono text-victoryEmerald font-bold truncate max-w-full">${formatCurrency(purse2)}</div>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- RANK 3 CARD (BRONZE) -->
+          ${third ? `
+          <div class="w-full md:flex-1 md:max-w-[260px] md:order-3 flex flex-col items-center">
+            <div class="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-amber-700 shadow-xl mb-1.5 flex items-center justify-center relative">
+              <span class="absolute -top-2.5 -right-2 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-amber-700 text-white font-black font-display text-xs flex items-center justify-center shadow-lg border border-white">3</span>
+              <img src="${logo3}" alt="${tag3}" class="w-full h-full object-contain filter drop-shadow" />
+            </div>
+            <div class="font-display font-black text-xs sm:text-base text-white uppercase tracking-wider text-center truncate max-w-full">${name3}</div>
+            <div class="text-[10px] sm:text-xs text-slate-400 font-sans truncate max-w-full mb-1.5">${third.managerName || 'Manager'} (${tag3})</div>
+
+            <div class="w-full rounded-2xl sm:rounded-3xl pedestal-bronze p-3 sm:p-4 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition shadow-xl" onclick="inspectTeamById('${tag3}')">
+              <div class="text-[9px] sm:text-[10px] font-display font-bold tracking-widest text-amber-500 uppercase">3RD PLACE</div>
+              <div class="my-2">
+                <div class="text-xl sm:text-3xl font-black font-display text-white tracking-tight">${third.totalPoints}</div>
+                <div class="text-[9px] sm:text-[10px] font-display uppercase tracking-wider text-slate-400">Squad Points</div>
+              </div>
+              <div class="text-[10px] sm:text-xs font-mono text-victoryEmerald font-bold truncate max-w-full">${formatCurrency(purse3)}</div>
+            </div>
+          </div>
+          ` : ''}
+        </div>
+
+      </div>
+    `;
   }
 
   // Render Complete Franchise Leaderboard Table (All Participating Teams)
@@ -2322,8 +2441,8 @@ function renderPodium(standings) {
           </td>
           <td class="py-3 px-3 text-slate-300 font-sans text-left">${team.managerName || 'Manager'}</td>
           <td class="py-3 px-3 text-center font-mono text-slate-300">${team.squadCount || (team.squad ? team.squad.length : 0)} players</td>
-          <td class="py-3 px-3 text-right font-mono text-victoryEmerald font-bold">${formatCurrency(teamPurse)}</td>
-          <td class="py-3 px-3 text-right font-mono text-amber-400 font-black text-sm">★ ${team.totalPoints} pts</td>
+          <td class="py-3 px-3 text-right font-mono text-amber-400 font-bold">${formatCurrency(teamPurse)}</td>
+          <td class="py-3 px-3 text-right font-mono text-laserCyan font-black text-sm">★ ${team.totalPoints} pts</td>
         `;
         podiumRestTableBody.appendChild(tr);
       });
@@ -2521,11 +2640,41 @@ function registerSocketAuctionListeners(s) {
     renderLogEntry(entry);
   });
 
-  // Real-time Spectator Cheer & Decibel Broadcast Listener
-  s.on('broadcast_cheer', ({ teamId, cheerType, cheerEmoji, currentDecibel }) => {
-    spawnFloatingCheerSprite(cheerEmoji);
-    if (cheerType === 'lightning') triggerLightningArc();
+  // Sudden Death Timer Shortened (Zero-bid consensus fold: 1 team remaining)
+  s.on('timer_shortened', ({ seconds, message }) => {
+    playBeep(987.77, 'sawtooth', 0.25);
+    setTimeout(() => playBeep(1318.51, 'square', 0.3), 150);
+    showToast(`⚠️ SUDDEN DEATH! ${message || '5s countdown to bid!'}`, 'warning');
+    speakCommentary('Sudden Death! Only five seconds remaining on the clock!');
+    if (auctionTimer) {
+      auctionTimer.textContent = seconds || 5;
+      auctionTimer.classList.add('timer-panic');
+    }
+  });
 
+  // Targeted Visual Cheer Animation (Sent to franchise manager and sender)
+  s.on('spectator_cheer_effect', ({ teamId, cheerType, cheerEmoji }) => {
+    if (!window.userSettings || !window.userSettings.showCheers) return;
+    spawnFloatingCheerSprite(cheerEmoji || '👏');
+    if (cheerType === 'lightning') triggerLightningArc();
+  });
+
+  // Global Decibel Meter Broadcast (Real-time telemetry for all fans and managers)
+  s.on('update_decibel_meter', ({ teamId, currentDecibel }) => {
+    const decEl = document.getElementById('decibelFill');
+    const decVal = document.getElementById('decibelValueText');
+    const tagEl = document.getElementById('cheerTeamTag');
+    if (decEl) decEl.style.width = `${Math.min(100, Math.max(10, currentDecibel))}%`;
+    if (decVal) decVal.textContent = `${currentDecibel} dB`;
+    if (tagEl && teamId) tagEl.textContent = teamId;
+  });
+
+  // Backward-compatible cheer broadcast listener
+  s.on('broadcast_cheer', ({ teamId, cheerType, cheerEmoji, currentDecibel }) => {
+    if (window.userSettings && window.userSettings.showCheers) {
+      spawnFloatingCheerSprite(cheerEmoji);
+      if (cheerType === 'lightning') triggerLightningArc();
+    }
     const decEl = document.getElementById('decibelFill');
     const decVal = document.getElementById('decibelValueText');
     const tagEl = document.getElementById('cheerTeamTag');

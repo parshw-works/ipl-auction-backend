@@ -332,10 +332,11 @@ function advanceToNextPlayer(room) {
     room.currentPlayer = nextPlayer;
     room.currentBid = nextPlayer.basePrice;
     room.highestBidder = null;
+    room.openingBidPlaced = false;
     room.timerSeconds = 15;
     room.isTimerRunning = false;
     room.foldedTeams = new Set();
-    clearRoomTimer(room);
+    startCountdown(room);
 
     addRoomLog(
       room,
@@ -880,6 +881,7 @@ io.on('connection', (socket) => {
       }
 
       // Atomic state update
+      room.openingBidPlaced = true;
       room.currentBid = nextBidAmount;
       room.highestBidder = {
         socketId: socket.id,
@@ -1009,22 +1011,69 @@ io.on('connection', (socket) => {
         'info'
       );
 
-      const requiredFolds = room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1);
+      const hasBid = !!(room.highestBidder || room.openingBidPlaced);
 
-      if (room.foldedTeams.size >= requiredFolds) {
-        clearRoomTimer(room);
-        addRoomLog(
-          room,
-          `⚡ Consensus reached! All non-leading franchises folded on ${room.currentPlayer.name}. Instant hammer!`,
-          'announcement'
-        );
-        io.to(room.code).emit('all_teams_folded', {
-          player: room.currentPlayer,
-          highestBidder: room.highestBidder
-        });
-        handlePlayerSoldOrUnsold(room);
-        if (typeof callback === 'function') callback({ success: true, folded: true, allFolded: true });
-        return;
+      if (!hasBid) {
+        // Zero-Bid Consensus Resolution (Instant UNSOLD or Sudden Death)
+        const totalConnectedTeams = room.teams.size;
+        const remainingEligible = totalConnectedTeams - room.foldedTeams.size;
+
+        if (remainingEligible <= 0) {
+          // Case A: All active teams have folded -> Instant UNSOLD!
+          clearRoomTimer(room);
+          addRoomLog(
+            room,
+            `⚡ All franchises passed on ${room.currentPlayer.name}. Instant unsold!`,
+            'announcement'
+          );
+          io.to(room.code).emit('player_unsold', { 
+            player: room.currentPlayer, 
+            reason: "All franchises passed" 
+          });
+
+          // Transition to next player after 2-second cooldown
+          setTimeout(() => {
+            handlePlayerSoldOrUnsold(room);
+          }, 2000);
+
+          if (typeof callback === 'function') callback({ success: true, folded: true, allFolded: true, unsold: true });
+          return;
+        } else if (remainingEligible === 1) {
+          // Case B: Only 1 team remains eligible with 0 bids placed -> Sudden Death 5s Clock
+          room.timerSeconds = Math.min(room.timerSeconds, 5);
+          addRoomLog(
+            room,
+            `⚡ Sudden Death! Only 1 franchise remaining to bid on ${room.currentPlayer.name} (5s clock).`,
+            'warning'
+          );
+          io.to(room.code).emit('timer_shortened', {
+            reason: "Final chance for remaining franchise to place opening bid!",
+            seconds: room.timerSeconds
+          });
+          io.to(room.code).emit('timer_tick', { seconds: room.timerSeconds, isRunning: true });
+          broadcastRoomUpdate(roomCode);
+          if (typeof callback === 'function') callback({ success: true, folded: true, shortened: true });
+          return;
+        }
+      } else {
+        // Active-Bid Consensus Resolution (Instant SOLD)
+        const requiredFolds = room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1);
+
+        if (room.foldedTeams.size >= requiredFolds) {
+          clearRoomTimer(room);
+          addRoomLog(
+            room,
+            `⚡ Consensus reached! All rival franchises folded on ${room.currentPlayer.name}. Instant hammer!`,
+            'announcement'
+          );
+          io.to(room.code).emit('all_teams_folded', {
+            player: room.currentPlayer,
+            highestBidder: room.highestBidder
+          });
+          handlePlayerSoldOrUnsold(room);
+          if (typeof callback === 'function') callback({ success: true, folded: true, allFolded: true });
+          return;
+        }
       }
 
       broadcastRoomUpdate(roomCode);
@@ -1034,7 +1083,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 9B. Spectator Cheer & Decibel Hype Event
+  // 9B. Spectator Cheer: Targeted Delivery & Decibel Meter Update
   socket.on('spectator_cheer', ({ teamId, cheerType, cheerEmoji }, callback) => {
     try {
       const roomCode = socket.roomCode;
@@ -1056,12 +1105,44 @@ io.on('connection', (socket) => {
       const boost = cType === 'lightning' ? 8 : (cType === 'horn' || cType === 'chant' ? 5 : 3);
       room.decibelMeter[targetTeam] = Math.min(100, (room.decibelMeter[targetTeam] || 50) + boost);
 
+      // 1. GLOBAL AGGREGATION: Update crowd decibel meter for everyone in room
+      io.to(room.code).emit('update_decibel_meter', {
+        teamId: targetTeam,
+        currentDecibel: room.decibelMeter[targetTeam],
+        decibelMeter: room.decibelMeter
+      });
+
+      // Also maintain backward-compatibility broadcast for legacy clients
       io.to(room.code).emit('broadcast_cheer', {
         teamId: targetTeam,
         cheerType: cType,
         cheerEmoji: cheerEmoji || '👏',
         currentDecibel: room.decibelMeter[targetTeam]
       });
+
+      // 2. VISUAL ANIMATION ISOLATION: Private to supported franchise manager + cheering spectator
+      let targetManagerSocketId = null;
+      for (const [sId, t] of room.teams.entries()) {
+        if (t.franchiseId === targetTeam) {
+          targetManagerSocketId = sId;
+          break;
+        }
+      }
+
+      const cheerEffectPayload = {
+        teamId: targetTeam,
+        cheerType: cType,
+        cheerEmoji: cheerEmoji || '👏',
+        currentDecibel: room.decibelMeter[targetTeam]
+      };
+
+      // Emit visual effect to cheering spectator
+      socket.emit('spectator_cheer_effect', cheerEffectPayload);
+
+      // Emit visual effect to the supported franchise manager (if distinct)
+      if (targetManagerSocketId && targetManagerSocketId !== socket.id) {
+        io.to(targetManagerSocketId).emit('spectator_cheer_effect', cheerEffectPayload);
+      }
 
       if (typeof callback === 'function') callback({ success: true, decibel: room.decibelMeter[targetTeam] });
     } catch (err) {
