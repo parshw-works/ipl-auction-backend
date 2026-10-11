@@ -220,7 +220,9 @@ function sanitizeRoomState(room) {
     foldedTeams: foldedList,
     foldedCount: foldedList.length,
     requiredFolds: requiredFolds,
-    standings: room.standings || null
+    standings: room.standings || null,
+    spectatorsCount: room.spectators ? room.spectators.size : 0,
+    decibelMeter: room.decibelMeter || {}
   };
 }
 
@@ -398,6 +400,9 @@ io.on('connection', (socket) => {
       // Clone players pool
       const playerPool = JSON.parse(JSON.stringify(playersDataset));
 
+      const decibelMap = {};
+      IPL_TEAMS.forEach(t => { decibelMap[t.id] = 50; });
+
       const newRoom = {
         code: roomCode,
         hostId: socket.id,
@@ -412,6 +417,8 @@ io.on('connection', (socket) => {
           retentionsAllowed: Math.min(Math.max(Number(retentionsAllowed) || 0, 0), 4)
         },
         teams: new Map(),
+        spectators: new Map(),
+        decibelMeter: decibelMap,
         playerPool,
         unsoldPlayers: [],
         skipHistory: [],
@@ -435,7 +442,8 @@ io.on('connection', (socket) => {
         roomId: roomCode,
         teamId: null,
         managerName: (managerName || 'Host').trim(),
-        socketId: socket.id
+        socketId: socket.id,
+        role: 'manager'
       });
 
       addRoomLog(newRoom, `Room created [${roomCode}]. Host joined.`);
@@ -474,6 +482,45 @@ io.on('connection', (socket) => {
         }
       }
 
+      // 10-Franchise Cap & Automated Spectator Ingestion
+      const isLobbyFull = room.teams.size >= 10;
+      const isAutoSpectator = room.isStarted || isLobbyFull;
+
+      if (isAutoSpectator) {
+        if (!room.spectators) room.spectators = new Map();
+        room.spectators.set(socket.id, {
+          socketId: socket.id,
+          managerName: mName,
+          supportedTeam: null,
+          sessionToken: token
+        });
+
+        socket.join(code);
+        socket.roomCode = code;
+
+        sessionRegistry.set(token, {
+          roomId: code,
+          teamId: null,
+          managerName: mName,
+          socketId: socket.id,
+          role: 'spectator'
+        });
+
+        addRoomLog(room, `👁️ ${mName} joined as Spectator.`);
+
+        if (typeof callback === 'function') {
+          callback({
+            success: true,
+            role: 'spectator',
+            sessionToken: token,
+            roomState: sanitizeRoomState(room)
+          });
+        }
+
+        broadcastRoomUpdate(code);
+        return;
+      }
+
       socket.join(code);
       socket.roomCode = code;
 
@@ -481,11 +528,12 @@ io.on('connection', (socket) => {
         roomId: code,
         teamId: null,
         managerName: mName,
-        socketId: socket.id
+        socketId: socket.id,
+        role: 'manager'
       });
 
       if (typeof callback === 'function') {
-        callback({ success: true, sessionToken: token, roomState: sanitizeRoomState(room) });
+        callback({ success: true, role: 'manager', sessionToken: token, roomState: sanitizeRoomState(room) });
       }
 
       broadcastRoomUpdate(code);
@@ -539,11 +587,25 @@ io.on('connection', (socket) => {
       }
 
       const token = sessionToken || generateSessionToken();
+      let userRole = reclaimedTeam ? 'manager' : 'spectator';
+
+      if (!reclaimedTeam && (room.isStarted || room.teams.size >= 10)) {
+        if (!room.spectators) room.spectators = new Map();
+        room.spectators.set(socket.id, {
+          socketId: socket.id,
+          managerName: managerName || 'Spectator',
+          supportedTeam: null,
+          sessionToken: token
+        });
+        userRole = 'spectator';
+      }
+
       sessionRegistry.set(token, {
         roomId: code,
         teamId: reclaimedTeam ? reclaimedTeam.franchiseId : null,
         managerName: reclaimedTeam ? reclaimedTeam.managerName : (managerName || 'Manager'),
-        socketId: socket.id
+        socketId: socket.id,
+        role: userRole
       });
 
       addRoomLog(
@@ -558,6 +620,7 @@ io.on('connection', (socket) => {
         callback({
           success: true,
           reclaimed: !!reclaimedTeam,
+          role: userRole,
           sessionToken: token,
           roomState: sanitizeRoomState(room),
           team: reclaimedTeam,
@@ -584,6 +647,11 @@ io.on('connection', (socket) => {
       // Match-Lock Guard: Once match is started, team selection is strictly locked
       if (room.isStarted || room.status !== 'LOBBY') {
         return callback && callback({ success: false, error: 'Match already started. Franchise selection is locked.' });
+      }
+
+      // 10-Franchise Cap Guard
+      if (room.teams.size >= 10 && !room.teams.has(socket.id)) {
+        return callback && callback({ success: false, error: 'Lobby is full! Max 10 franchises already claimed.' });
       }
 
       const franchise = IPL_TEAMS.find(t => t.id === franchiseId);
@@ -966,12 +1034,51 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 9B. Spectator Cheer & Decibel Hype Event
+  socket.on('spectator_cheer', ({ teamId, cheerType, cheerEmoji }, callback) => {
+    try {
+      const roomCode = socket.roomCode;
+      const room = rooms.get(roomCode);
+      if (!room) return callback && callback({ success: false, error: 'Room not found' });
+
+      if (!room.decibelMeter) {
+        room.decibelMeter = {};
+        IPL_TEAMS.forEach(t => { room.decibelMeter[t.id] = 50; });
+      }
+
+      const validTypes = ['horn', 'fire', 'applause', 'lightning', 'chant'];
+      const cType = validTypes.includes(cheerType) ? cheerType : 'applause';
+
+      const targetTeam = teamId && IPL_TEAMS.some(t => t.id === teamId) 
+        ? teamId 
+        : (room.highestBidder ? room.highestBidder.teamId : 'CSK');
+
+      const boost = cType === 'lightning' ? 8 : (cType === 'horn' || cType === 'chant' ? 5 : 3);
+      room.decibelMeter[targetTeam] = Math.min(100, (room.decibelMeter[targetTeam] || 50) + boost);
+
+      io.to(room.code).emit('broadcast_cheer', {
+        teamId: targetTeam,
+        cheerType: cType,
+        cheerEmoji: cheerEmoji || '👏',
+        currentDecibel: room.decibelMeter[targetTeam]
+      });
+
+      if (typeof callback === 'function') callback({ success: true, decibel: room.decibelMeter[targetTeam] });
+    } catch (err) {
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
+  });
+
   // 10. Disconnect
   socket.on('disconnect', () => {
     const roomCode = socket.roomCode;
     if (!roomCode) return;
     const room = rooms.get(roomCode);
     if (!room) return;
+
+    if (room.spectators && room.spectators.has(socket.id)) {
+      room.spectators.delete(socket.id);
+    }
 
     const leavingTeam = room.teams.get(socket.id);
     if (leavingTeam) {
@@ -1009,6 +1116,10 @@ io.on('connection', (socket) => {
         sessionRegistry.delete(sessionToken);
       }
       if (roomCode) {
+        const room = rooms.get(roomCode);
+        if (room && room.spectators) {
+          room.spectators.delete(socket.id);
+        }
         socket.leave(roomCode);
         socket.roomCode = null;
       }
@@ -1018,6 +1129,24 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+// Periodic Decibel Meter Ambient Decay (Towards 50 base)
+setInterval(() => {
+  for (const room of rooms.values()) {
+    if (room.decibelMeter) {
+      let changed = false;
+      for (const tId in room.decibelMeter) {
+        if (room.decibelMeter[tId] > 50) {
+          room.decibelMeter[tId] = Math.max(50, room.decibelMeter[tId] - 2);
+          changed = true;
+        }
+      }
+      if (changed && room.code) {
+        io.to(room.code).emit('decibel_decay', { decibelMeter: room.decibelMeter });
+      }
+    }
+  }
+}, 2000);
 
 // REST Health API
 app.get('/api/health', (req, res) => {
