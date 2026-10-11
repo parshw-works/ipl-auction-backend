@@ -1730,6 +1730,12 @@ function renderPodium(standings) {
     speakCommentary(`Congratulations to ${champion.teamName} and Manager ${champion.managerName} for clinching the IPL Mega Auction Championship title!`);
   }
 
+  // Helper to reliably get franchise metadata (prevent undefined)
+  const getTeamName = (t) => t.teamName || t.name || (FRANCHISES.find(f => f.id === (t.teamId || t.franchiseId)) || {}).name || t.teamId || t.franchiseId || 'Franchise';
+  const getTeamTag = (t) => t.teamId || t.franchiseId || 'IPL';
+  const getTeamLogo = (t) => t.logo || `/logos/${getTeamTag(t)}.svg`;
+  const getTeamPurse = (t) => (t.remainingPurse !== undefined && !isNaN(t.remainingPurse)) ? t.remainingPurse : (t.purse !== undefined && !isNaN(t.purse) ? t.purse : 0);
+
   // Render Top 3 Olympic Pedestal
   // Layout order: 2nd place (Left), 1st place (Center elevated), 3rd place (Right)
   if (podiumTop3Container) {
@@ -1743,23 +1749,28 @@ function renderPodium(standings) {
 
     // 2nd Place (Silver)
     if (second) {
+      const tag2 = getTeamTag(second);
+      const name2 = getTeamName(second);
+      const logo2 = getTeamLogo(second);
+      const purse2 = getTeamPurse(second);
+
       cardsHtml.push(`
         <div class="order-2 md:order-1 flex-1 max-w-[260px] w-full flex flex-col items-center">
           <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-slate-300 shadow-xl mb-2 flex items-center justify-center relative">
             <span class="absolute -top-3 -right-2 w-7 h-7 rounded-full bg-slate-300 text-slate-950 font-black font-display text-xs flex items-center justify-center shadow-lg border-2 border-white">2</span>
-            <img src="${second.logo}" alt="${second.teamId}" class="w-full h-full object-contain filter drop-shadow" />
+            <img src="${logo2}" alt="${tag2}" class="w-full h-full object-contain filter drop-shadow" />
           </div>
-          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${second.teamId}</div>
-          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${second.managerName}</div>
+          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${name2}</div>
+          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${second.managerName || 'Manager'} (${tag2})</div>
           
           <!-- Silver Pedestal Box -->
-          <div class="w-full h-36 sm:h-44 rounded-3xl pedestal-silver mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${second.teamId}')">
+          <div class="w-full h-36 sm:h-44 rounded-3xl pedestal-silver mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${tag2}')">
             <div class="text-[10px] font-display font-bold tracking-widest text-slate-300 uppercase">RUNNER UP</div>
             <div class="my-auto">
               <div class="text-2xl sm:text-3xl font-black font-display text-white tracking-tight">${second.totalPoints}</div>
               <div class="text-[10px] font-display uppercase tracking-wider text-slate-400">Total Points</div>
             </div>
-            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(second.remainingPurse)} Left</div>
+            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(purse2)} Left</div>
           </div>
         </div>
       `);
@@ -1767,6 +1778,11 @@ function renderPodium(standings) {
 
     // 1st Place (Gold Center)
     if (first) {
+      const tag1 = getTeamTag(first);
+      const name1 = getTeamName(first);
+      const logo1 = getTeamLogo(first);
+      const purse1 = getTeamPurse(first);
+
       cardsHtml.push(`
         <div class="order-1 md:order-2 flex-1 max-w-[290px] w-full flex flex-col items-center -mt-3 md:-mt-6 z-10">
           <div class="crown-float text-amber-400 text-2xl sm:text-3xl mb-1 filter drop-shadow-[0_0_12px_rgba(255,184,0,0.8)]">
@@ -1774,19 +1790,19 @@ function renderPodium(standings) {
           </div>
           <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl p-2.5 bg-gradient-to-b from-amber-500/30 to-[#0e1838] border-2 border-amber-400 shadow-2xl shadow-amber-500/40 mb-2 flex items-center justify-center relative">
             <span class="absolute -top-3.5 -right-2.5 w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-300 text-slate-950 font-black font-display text-sm flex items-center justify-center shadow-2xl border-2 border-white">1</span>
-            <img src="${first.logo}" alt="${first.teamId}" class="w-full h-full object-contain filter drop-shadow-xl" />
+            <img src="${logo1}" alt="${tag1}" class="w-full h-full object-contain filter drop-shadow-xl" />
           </div>
-          <div class="font-display font-black text-base sm:text-lg text-amber-300 uppercase tracking-wider gold-foil-text">${first.teamName}</div>
-          <div class="text-xs text-slate-300 font-sans truncate max-w-full font-bold">${first.managerName}</div>
+          <div class="font-display font-black text-base sm:text-lg text-amber-300 uppercase tracking-wider gold-foil-text">${name1}</div>
+          <div class="text-xs text-slate-300 font-sans truncate max-w-full font-bold">${first.managerName || 'Manager'} (${tag1})</div>
           
           <!-- Gold Pedestal Box -->
-          <div class="w-full h-48 sm:h-56 rounded-3xl pedestal-gold mt-2 p-3 sm:p-4 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${first.teamId}')">
+          <div class="w-full h-48 sm:h-56 rounded-3xl pedestal-gold mt-2 p-3 sm:p-4 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${tag1}')">
             <div class="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black font-display tracking-widest uppercase shadow">CHAMPION</div>
             <div class="my-auto">
               <div class="text-3xl sm:text-4xl font-black font-display text-white tracking-tight text-glow-gold">${first.totalPoints}</div>
               <div class="text-[11px] font-display uppercase tracking-wider text-amber-200/80 font-bold">Total Squad Points</div>
             </div>
-            <div class="text-xs font-mono text-emerald-300 font-bold bg-black/30 px-3 py-1 rounded-full border border-amber-400/30">${formatCurrency(first.remainingPurse)} Purse Left</div>
+            <div class="text-xs font-mono text-emerald-300 font-bold bg-black/30 px-3 py-1 rounded-full border border-amber-400/30">${formatCurrency(purse1)} Purse Left</div>
           </div>
         </div>
       `);
@@ -1794,23 +1810,28 @@ function renderPodium(standings) {
 
     // 3rd Place (Bronze)
     if (third) {
+      const tag3 = getTeamTag(third);
+      const name3 = getTeamName(third);
+      const logo3 = getTeamLogo(third);
+      const purse3 = getTeamPurse(third);
+
       cardsHtml.push(`
         <div class="order-3 flex-1 max-w-[260px] w-full flex flex-col items-center">
           <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl p-2 bg-[#0a1024] border-2 border-amber-700 shadow-xl mb-2 flex items-center justify-center relative">
             <span class="absolute -top-3 -right-2 w-7 h-7 rounded-full bg-amber-700 text-white font-black font-display text-xs flex items-center justify-center shadow-lg border-2 border-white">3</span>
-            <img src="${third.logo}" alt="${third.teamId}" class="w-full h-full object-contain filter drop-shadow" />
+            <img src="${logo3}" alt="${tag3}" class="w-full h-full object-contain filter drop-shadow" />
           </div>
-          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${third.teamId}</div>
-          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${third.managerName}</div>
+          <div class="font-display font-black text-sm sm:text-base text-white uppercase tracking-wider">${name3}</div>
+          <div class="text-[11px] text-slate-400 font-sans truncate max-w-full">${third.managerName || 'Manager'} (${tag3})</div>
           
           <!-- Bronze Pedestal Box -->
-          <div class="w-full h-32 sm:h-36 rounded-3xl pedestal-bronze mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${third.teamId}')">
+          <div class="w-full h-32 sm:h-36 rounded-3xl pedestal-bronze mt-2 p-3 flex flex-col justify-between items-center text-center cursor-pointer hover:scale-[1.02] transition" onclick="inspectTeamById('${tag3}')">
             <div class="text-[10px] font-display font-bold tracking-widest text-amber-500 uppercase">3RD PLACE</div>
             <div class="my-auto">
               <div class="text-2xl sm:text-3xl font-black font-display text-white tracking-tight">${third.totalPoints}</div>
               <div class="text-[10px] font-display uppercase tracking-wider text-slate-400">Total Points</div>
             </div>
-            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(third.remainingPurse)} Left</div>
+            <div class="text-[10px] font-mono text-victoryEmerald font-bold">${formatCurrency(purse3)} Left</div>
           </div>
         </div>
       `);
@@ -1826,24 +1847,29 @@ function renderPodium(standings) {
       podiumRestTableBody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-xs text-slate-500 font-sans">No additional franchises in this room.</td></tr>';
     } else {
       standings.forEach((team) => {
+        const teamTag = getTeamTag(team);
+        const teamName = getTeamName(team);
+        const teamLogo = getTeamLogo(team);
+        const teamPurse = getTeamPurse(team);
+
         const tr = document.createElement('tr');
         const rankBadge = team.rank === 1 ? 'text-amber-400 font-black' : team.rank === 2 ? 'text-slate-300 font-black' : team.rank === 3 ? 'text-amber-600 font-black' : 'text-slate-400';
         tr.className = `hover:bg-white/5 transition cursor-pointer border-b border-white/5 ${team.rank <= 3 ? 'bg-white/[0.02]' : ''}`;
-        tr.onclick = () => inspectTeamById(team.teamId);
+        tr.onclick = () => inspectTeamById(teamTag);
         tr.innerHTML = `
           <td class="py-3 px-3 font-mono font-bold text-left ${rankBadge}">
             ${team.rank === 1 ? '🥇 #1' : team.rank === 2 ? '🥈 #2' : team.rank === 3 ? '🥉 #3' : `#${team.rank}`}
           </td>
           <td class="py-3 px-3 text-left">
             <div class="flex items-center space-x-2">
-              <img src="${team.logo}" alt="${team.teamId}" class="w-6 h-6 object-contain" />
-              <span class="font-display font-black text-white uppercase">${team.teamName}</span>
+              <img src="${teamLogo}" alt="${teamTag}" class="w-6 h-6 object-contain" />
+              <span class="font-display font-black text-white uppercase">${teamName}</span>
               ${team.rank === 1 ? '<span class="px-1.5 py-0.2 rounded text-[9px] bg-amber-400 text-slate-950 font-black font-display uppercase tracking-widest">CHAMPION</span>' : ''}
             </div>
           </td>
-          <td class="py-3 px-3 text-slate-300 font-sans text-left">${team.managerName}</td>
-          <td class="py-3 px-3 text-center font-mono text-slate-300">${team.squadCount} players</td>
-          <td class="py-3 px-3 text-right font-mono text-victoryEmerald font-bold">${formatCurrency(team.remainingPurse)}</td>
+          <td class="py-3 px-3 text-slate-300 font-sans text-left">${team.managerName || 'Manager'}</td>
+          <td class="py-3 px-3 text-center font-mono text-slate-300">${team.squadCount || (team.squad ? team.squad.length : 0)} players</td>
+          <td class="py-3 px-3 text-right font-mono text-victoryEmerald font-bold">${formatCurrency(teamPurse)}</td>
           <td class="py-3 px-3 text-right font-mono text-amber-400 font-black text-sm">★ ${team.totalPoints} pts</td>
         `;
         podiumRestTableBody.appendChild(tr);

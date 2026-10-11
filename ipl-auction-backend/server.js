@@ -118,6 +118,11 @@ function calculateStandings(room) {
     const avgRating = t.squad.length > 0 ? (totalPoints / t.squad.length).toFixed(1) : '0.0';
     return {
       ...t,
+      teamId: t.franchiseId,
+      teamName: t.name,
+      remainingPurse: t.purse,
+      logo: t.logo || `/logos/${t.franchiseId}.svg`,
+      color: t.color || '#334155',
       totalPoints,
       avgRating: Number(avgRating),
       squadCount: t.squad.length
@@ -129,7 +134,7 @@ function calculateStandings(room) {
     if (b.totalPoints !== a.totalPoints) {
       return b.totalPoints - a.totalPoints;
     }
-    return b.purse - a.purse;
+    return (b.remainingPurse || b.purse) - (a.remainingPurse || a.purse);
   });
 
   scoredTeams.forEach((t, index) => {

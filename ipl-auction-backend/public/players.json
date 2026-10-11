@@ -19,7 +19,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 92
+    "rating": 97
   },
   {
     "id": "p_2",
@@ -41,7 +41,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 80
+    "rating": 81
   },
   {
     "id": "p_3",
@@ -63,7 +63,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 74
+    "rating": 82
   },
   {
     "id": "p_4",
@@ -107,7 +107,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 73
+    "rating": 85
   },
   {
     "id": "p_6",
@@ -129,7 +129,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 92
+    "rating": 89
   },
   {
     "id": "p_7",
@@ -151,7 +151,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 96
+    "rating": 78
   },
   {
     "id": "p_8",
@@ -173,7 +173,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 74
+    "rating": 88
   },
   {
     "id": "p_9",
@@ -195,7 +195,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 81
+    "rating": 91
   },
   {
     "id": "p_10",
@@ -217,7 +217,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 82
+    "rating": 83
   },
   {
     "id": "p_11",
@@ -239,7 +239,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 84
+    "rating": 92
   },
   {
     "id": "p_12",
@@ -261,7 +261,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 76
+    "rating": 75
   },
   {
     "id": "p_13",
@@ -305,7 +305,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 65
+    "rating": 89
   },
   {
     "id": "p_15",
@@ -327,7 +327,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 83
+    "rating": 82
   },
   {
     "id": "p_16",
@@ -349,7 +349,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 92
+    "rating": 84
   },
   {
     "id": "p_17",
@@ -371,7 +371,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 89
+    "rating": 84
   },
   {
     "id": "p_18",
@@ -393,7 +393,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 89
+    "rating": 86
   },
   {
     "id": "p_19",
@@ -415,7 +415,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 78
+    "rating": 79
   },
   {
     "id": "p_20",
@@ -437,7 +437,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 88
+    "rating": 83
   },
   {
     "id": "p_21",
@@ -459,7 +459,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 72
+    "rating": 82
   },
   {
     "id": "p_22",
@@ -481,7 +481,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 74
+    "rating": 85
   },
   {
     "id": "p_23",
@@ -503,7 +503,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 78
+    "rating": 75
   },
   {
     "id": "p_24",
@@ -525,7 +525,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 84
+    "rating": 78
   },
   {
     "id": "p_25",
@@ -547,7 +547,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 69
+    "rating": 80
   },
   {
     "id": "p_26",
@@ -569,7 +569,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 76
+    "rating": 80
   },
   {
     "id": "p_27",
@@ -591,7 +591,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium"
     },
-    "rating": 87
+    "rating": 77
   },
   {
     "id": "p_28",
@@ -613,7 +613,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 90
+    "rating": 89
   },
   {
     "id": "p_30",
@@ -635,7 +635,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Medium"
     },
-    "rating": 75
+    "rating": 73
   },
   {
     "id": "p_31",
@@ -657,7 +657,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 79
+    "rating": 81
   },
   {
     "id": "p_32",
@@ -679,7 +679,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 95
+    "rating": 86
   },
   {
     "id": "p_33",
@@ -701,7 +701,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 67
+    "rating": 80
   },
   {
     "id": "p_34",
@@ -723,7 +723,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 84
+    "rating": 86
   },
   {
     "id": "p_35",
@@ -745,7 +745,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 90
+    "rating": 82
   },
   {
     "id": "p_36",
@@ -767,7 +767,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Wrist spin"
     },
-    "rating": 77
+    "rating": 90
   },
   {
     "id": "p_37",
@@ -789,7 +789,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 80
+    "rating": 81
   },
   {
     "id": "p_38",
@@ -811,7 +811,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 78
+    "rating": 88
   },
   {
     "id": "p_40",
@@ -833,7 +833,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 88
+    "rating": 76
   },
   {
     "id": "p_41",
@@ -855,7 +855,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 68
+    "rating": 81
   },
   {
     "id": "p_42",
@@ -877,7 +877,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 79
+    "rating": 88
   },
   {
     "id": "p_43",
@@ -899,7 +899,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 67
+    "rating": 78
   },
   {
     "id": "p_44",
@@ -921,7 +921,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 81
+    "rating": 82
   },
   {
     "id": "p_45",
@@ -943,7 +943,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 88
+    "rating": 85
   },
   {
     "id": "p_46",
@@ -965,7 +965,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 81
+    "rating": 89
   },
   {
     "id": "p_47",
@@ -987,7 +987,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 84
+    "rating": 83
   },
   {
     "id": "p_48",
@@ -1009,7 +1009,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 89
+    "rating": 83
   },
   {
     "id": "p_49",
@@ -1031,7 +1031,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 86
+    "rating": 81
   },
   {
     "id": "p_50",
@@ -1075,7 +1075,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 73
+    "rating": 81
   },
   {
     "id": "p_52",
@@ -1097,7 +1097,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 88
+    "rating": 85
   },
   {
     "id": "p_53",
@@ -1119,7 +1119,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 76
+    "rating": 75
   },
   {
     "id": "p_54",
@@ -1141,7 +1141,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 82
+    "rating": 93
   },
   {
     "id": "p_55",
@@ -1163,7 +1163,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 77
+    "rating": 94
   },
   {
     "id": "p_56",
@@ -1185,7 +1185,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 96
+    "rating": 83
   },
   {
     "id": "p_57",
@@ -1207,7 +1207,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 78
+    "rating": 77
   },
   {
     "id": "p_58",
@@ -1229,7 +1229,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 79
+    "rating": 83
   },
   {
     "id": "p_60",
@@ -1273,7 +1273,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 71
+    "rating": 91
   },
   {
     "id": "p_62",
@@ -1295,7 +1295,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 66
+    "rating": 74
   },
   {
     "id": "p_63",
@@ -1317,7 +1317,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Wrist spin"
     },
-    "rating": 76
+    "rating": 80
   },
   {
     "id": "p_65",
@@ -1339,7 +1339,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 93
+    "rating": 95
   },
   {
     "id": "p_66",
@@ -1361,7 +1361,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 93
+    "rating": 86
   },
   {
     "id": "p_68",
@@ -1427,7 +1427,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 76
+    "rating": 80
   },
   {
     "id": "p_71",
@@ -1449,7 +1449,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 80
+    "rating": 83
   },
   {
     "id": "p_72",
@@ -1471,7 +1471,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 81
+    "rating": 73
   },
   {
     "id": "p_73",
@@ -1493,7 +1493,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 68
+    "rating": 81
   },
   {
     "id": "p_74",
@@ -1515,7 +1515,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 91
+    "rating": 93
   },
   {
     "id": "p_75",
@@ -1559,7 +1559,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 76
+    "rating": 85
   },
   {
     "id": "p_77",
@@ -1581,7 +1581,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 83
+    "rating": 84
   },
   {
     "id": "p_78",
@@ -1603,7 +1603,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 72
+    "rating": 75
   },
   {
     "id": "p_79",
@@ -1625,7 +1625,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 80
+    "rating": 79
   },
   {
     "id": "p_80",
@@ -1647,7 +1647,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 87
+    "rating": 79
   },
   {
     "id": "p_81",
@@ -1669,7 +1669,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 86
+    "rating": 83
   },
   {
     "id": "p_83",
@@ -1691,7 +1691,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 73
+    "rating": 82
   },
   {
     "id": "p_84",
@@ -1713,7 +1713,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 79
+    "rating": 82
   },
   {
     "id": "p_85",
@@ -1735,7 +1735,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 69
+    "rating": 86
   },
   {
     "id": "p_86",
@@ -1757,7 +1757,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 65
+    "rating": 86
   },
   {
     "id": "p_87",
@@ -1779,7 +1779,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 93
+    "rating": 86
   },
   {
     "id": "p_88",
@@ -1801,7 +1801,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 84
+    "rating": 82
   },
   {
     "id": "p_89",
@@ -1823,7 +1823,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 86
+    "rating": 77
   },
   {
     "id": "p_90",
@@ -1845,7 +1845,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 78
+    "rating": 83
   },
   {
     "id": "p_91",
@@ -1867,7 +1867,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 82
+    "rating": 93
   },
   {
     "id": "p_92",
@@ -1889,7 +1889,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 89
+    "rating": 86
   },
   {
     "id": "p_93",
@@ -1911,7 +1911,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 87
+    "rating": 84
   },
   {
     "id": "p_94",
@@ -1933,7 +1933,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 79
+    "rating": 82
   },
   {
     "id": "p_95",
@@ -1955,7 +1955,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 88
+    "rating": 93
   },
   {
     "id": "p_96",
@@ -1977,7 +1977,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 88
+    "rating": 90
   },
   {
     "id": "p_97",
@@ -1999,7 +1999,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 71
+    "rating": 75
   },
   {
     "id": "p_98",
@@ -2021,7 +2021,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 92
+    "rating": 77
   },
   {
     "id": "p_99",
@@ -2043,7 +2043,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 65
+    "rating": 84
   },
   {
     "id": "p_100",
@@ -2065,7 +2065,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 84
+    "rating": 87
   },
   {
     "id": "p_101",
@@ -2087,7 +2087,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 79
+    "rating": 84
   },
   {
     "id": "p_102",
@@ -2109,7 +2109,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 71
+    "rating": 83
   },
   {
     "id": "p_103",
@@ -2131,7 +2131,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 83
+    "rating": 92
   },
   {
     "id": "p_104",
@@ -2153,7 +2153,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 88
+    "rating": 82
   },
   {
     "id": "p_105",
@@ -2175,7 +2175,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 77
+    "rating": 79
   },
   {
     "id": "p_106",
@@ -2197,7 +2197,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 78
+    "rating": 84
   },
   {
     "id": "p_107",
@@ -2219,7 +2219,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 77
+    "rating": 86
   },
   {
     "id": "p_109",
@@ -2263,7 +2263,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 79
+    "rating": 84
   },
   {
     "id": "p_111",
@@ -2285,7 +2285,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 68
+    "rating": 80
   },
   {
     "id": "p_112",
@@ -2307,7 +2307,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 79
+    "rating": 82
   },
   {
     "id": "p_114",
@@ -2329,7 +2329,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 80
+    "rating": 84
   },
   {
     "id": "p_115",
@@ -2351,7 +2351,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 65
+    "rating": 79
   },
   {
     "id": "p_116",
@@ -2373,7 +2373,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 74
+    "rating": 72
   },
   {
     "id": "p_117",
@@ -2417,7 +2417,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 88
+    "rating": 91
   },
   {
     "id": "p_119",
@@ -2439,7 +2439,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 76
+    "rating": 87
   },
   {
     "id": "p_120",
@@ -2461,7 +2461,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 77
+    "rating": 78
   },
   {
     "id": "p_121",
@@ -2483,7 +2483,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 79
+    "rating": 81
   },
   {
     "id": "p_122",
@@ -2505,7 +2505,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 80
+    "rating": 83
   },
   {
     "id": "p_123",
@@ -2527,7 +2527,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 86
+    "rating": 88
   },
   {
     "id": "p_124",
@@ -2549,7 +2549,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 81
+    "rating": 80
   },
   {
     "id": "p_125",
@@ -2571,7 +2571,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Medium"
     },
-    "rating": 69
+    "rating": 79
   },
   {
     "id": "p_126",
@@ -2593,7 +2593,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 88
+    "rating": 81
   },
   {
     "id": "p_127",
@@ -2615,7 +2615,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 83
+    "rating": 75
   },
   {
     "id": "p_128",
@@ -2637,7 +2637,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 71
+    "rating": 81
   },
   {
     "id": "p_129",
@@ -2659,7 +2659,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 73
+    "rating": 84
   },
   {
     "id": "p_130",
@@ -2681,7 +2681,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 90
+    "rating": 92
   },
   {
     "id": "p_131",
@@ -2703,7 +2703,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 71
+    "rating": 86
   },
   {
     "id": "p_132",
@@ -2725,7 +2725,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 87
+    "rating": 96
   },
   {
     "id": "p_134",
@@ -2747,7 +2747,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 65
+    "rating": 79
   },
   {
     "id": "p_135",
@@ -2769,7 +2769,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 86
+    "rating": 79
   },
   {
     "id": "p_136",
@@ -2791,7 +2791,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 81
+    "rating": 83
   },
   {
     "id": "p_137",
@@ -2813,7 +2813,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 86
+    "rating": 85
   },
   {
     "id": "p_138",
@@ -2835,7 +2835,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Wrist spin"
     },
-    "rating": 71
+    "rating": 75
   },
   {
     "id": "p_139",
@@ -2857,7 +2857,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 83
+    "rating": 79
   },
   {
     "id": "p_140",
@@ -2879,7 +2879,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 94
+    "rating": 86
   },
   {
     "id": "p_141",
@@ -2901,7 +2901,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Fast"
     },
-    "rating": 77
+    "rating": 78
   },
   {
     "id": "p_142",
@@ -2923,7 +2923,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 74
+    "rating": 78
   },
   {
     "id": "p_143",
@@ -2945,7 +2945,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 69
+    "rating": 79
   },
   {
     "id": "p_144",
@@ -2967,7 +2967,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 76
+    "rating": 78
   },
   {
     "id": "p_145",
@@ -2989,7 +2989,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 83
+    "rating": 77
   },
   {
     "id": "p_146",
@@ -3011,7 +3011,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 75
+    "rating": 83
   },
   {
     "id": "p_147",
@@ -3033,7 +3033,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 87
+    "rating": 80
   },
   {
     "id": "p_148",
@@ -3055,7 +3055,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 66
+    "rating": 81
   },
   {
     "id": "p_149",
@@ -3077,7 +3077,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 93
+    "rating": 78
   },
   {
     "id": "p_150",
@@ -3099,7 +3099,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 81
+    "rating": 83
   },
   {
     "id": "p_151",
@@ -3121,7 +3121,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 84
+    "rating": 79
   },
   {
     "id": "p_152",
@@ -3143,7 +3143,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 78
+    "rating": 86
   },
   {
     "id": "p_153",
@@ -3165,7 +3165,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 94
+    "rating": 83
   },
   {
     "id": "p_154",
@@ -3187,7 +3187,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 82
+    "rating": 84
   },
   {
     "id": "p_155",
@@ -3209,7 +3209,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 83
+    "rating": 96
   },
   {
     "id": "p_156",
@@ -3231,7 +3231,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 65
+    "rating": 79
   },
   {
     "id": "p_157",
@@ -3253,7 +3253,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 95
+    "rating": 98
   },
   {
     "id": "p_158",
@@ -3275,7 +3275,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 72
+    "rating": 75
   },
   {
     "id": "p_159",
@@ -3319,7 +3319,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 73
+    "rating": 89
   },
   {
     "id": "p_161",
@@ -3341,7 +3341,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 74
+    "rating": 85
   },
   {
     "id": "p_162",
@@ -3363,7 +3363,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 82
+    "rating": 80
   },
   {
     "id": "p_163",
@@ -3385,7 +3385,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 79
+    "rating": 87
   },
   {
     "id": "p_164",
@@ -3407,7 +3407,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 72
+    "rating": 79
   },
   {
     "id": "p_165",
@@ -3451,7 +3451,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 75
+    "rating": 81
   },
   {
     "id": "p_167",
@@ -3473,7 +3473,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 73
+    "rating": 81
   },
   {
     "id": "p_168",
@@ -3495,7 +3495,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 91
+    "rating": 82
   },
   {
     "id": "p_170",
@@ -3517,7 +3517,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 79
+    "rating": 87
   },
   {
     "id": "p_171",
@@ -3539,7 +3539,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 82
+    "rating": 85
   },
   {
     "id": "p_172",
@@ -3561,7 +3561,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 80
+    "rating": 84
   },
   {
     "id": "p_173",
@@ -3583,7 +3583,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 81
+    "rating": 90
   },
   {
     "id": "p_174",
@@ -3605,7 +3605,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 91
+    "rating": 83
   },
   {
     "id": "p_175",
@@ -3627,7 +3627,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 89
+    "rating": 84
   },
   {
     "id": "p_178",
@@ -3649,7 +3649,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 89
+    "rating": 86
   },
   {
     "id": "p_179",
@@ -3671,7 +3671,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 82
+    "rating": 84
   },
   {
     "id": "p_180",
@@ -3693,7 +3693,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 75
+    "rating": 84
   },
   {
     "id": "p_181",
@@ -3715,7 +3715,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 82
+    "rating": 83
   },
   {
     "id": "p_182",
@@ -3737,7 +3737,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 76
+    "rating": 82
   },
   {
     "id": "p_183",
@@ -3759,7 +3759,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 87
+    "rating": 92
   },
   {
     "id": "p_185",
@@ -3781,7 +3781,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 69
+    "rating": 73
   },
   {
     "id": "p_186",
@@ -3803,7 +3803,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 82
+    "rating": 85
   },
   {
     "id": "p_187",
@@ -3825,7 +3825,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 70
+    "rating": 83
   },
   {
     "id": "p_188",
@@ -3847,7 +3847,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 67
+    "rating": 91
   },
   {
     "id": "p_189",
@@ -3891,7 +3891,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 93
+    "rating": 77
   },
   {
     "id": "p_191",
@@ -3913,7 +3913,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 73
+    "rating": 90
   },
   {
     "id": "p_192",
@@ -3935,7 +3935,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 87
+    "rating": 83
   },
   {
     "id": "p_193",
@@ -3957,7 +3957,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 89
+    "rating": 86
   },
   {
     "id": "p_194",
@@ -3979,7 +3979,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 84
+    "rating": 80
   },
   {
     "id": "p_195",
@@ -4001,7 +4001,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 87
+    "rating": 93
   },
   {
     "id": "p_196",
@@ -4023,7 +4023,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 84
+    "rating": 85
   },
   {
     "id": "p_197",
@@ -4045,7 +4045,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 84
+    "rating": 76
   },
   {
     "id": "p_198",
@@ -4067,7 +4067,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 79
+    "rating": 81
   },
   {
     "id": "p_199",
@@ -4089,7 +4089,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 84
+    "rating": 81
   },
   {
     "id": "p_201",
@@ -4133,7 +4133,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 72
+    "rating": 81
   },
   {
     "id": "p_203",
@@ -4155,7 +4155,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 70
+    "rating": 79
   },
   {
     "id": "p_205",
@@ -4177,7 +4177,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 76
+    "rating": 81
   },
   {
     "id": "p_207",
@@ -4199,7 +4199,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 92
+    "rating": 80
   },
   {
     "id": "p_208",
@@ -4221,7 +4221,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 68
+    "rating": 77
   },
   {
     "id": "p_209",
@@ -4243,7 +4243,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 92
+    "rating": 89
   },
   {
     "id": "p_210",
@@ -4265,7 +4265,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 80
+    "rating": 82
   },
   {
     "id": "p_211",
@@ -4287,7 +4287,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 88
+    "rating": 80
   },
   {
     "id": "p_212",
@@ -4309,7 +4309,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "DNB"
     },
-    "rating": 84
+    "rating": 83
   },
   {
     "id": "p_213",
@@ -4331,7 +4331,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 69
+    "rating": 78
   },
   {
     "id": "p_214",
@@ -4353,7 +4353,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 82
+    "rating": 80
   },
   {
     "id": "p_215",
@@ -4375,7 +4375,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 78
+    "rating": 80
   },
   {
     "id": "p_216",
@@ -4397,7 +4397,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 76
+    "rating": 84
   },
   {
     "id": "p_217",
@@ -4419,7 +4419,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Fast medium"
     },
-    "rating": 70
+    "rating": 81
   },
   {
     "id": "p_218",
@@ -4441,7 +4441,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 78
+    "rating": 83
   },
   {
     "id": "p_219",
@@ -4463,7 +4463,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 88
+    "rating": 85
   },
   {
     "id": "p_220",
@@ -4485,7 +4485,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 66
+    "rating": 79
   },
   {
     "id": "p_221",
@@ -4507,7 +4507,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 94
+    "rating": 98
   },
   {
     "id": "p_222",
@@ -4529,7 +4529,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 81
+    "rating": 77
   },
   {
     "id": "p_223",
@@ -4551,7 +4551,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 88
+    "rating": 89
   },
   {
     "id": "p_224",
@@ -4573,7 +4573,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 71
+    "rating": 88
   },
   {
     "id": "p_225",
@@ -4617,7 +4617,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 88
+    "rating": 87
   },
   {
     "id": "p_227",
@@ -4639,7 +4639,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 81
+    "rating": 85
   },
   {
     "id": "p_228",
@@ -4661,7 +4661,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 65
+    "rating": 76
   },
   {
     "id": "p_229",
@@ -4683,7 +4683,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 79
+    "rating": 78
   },
   {
     "id": "p_230",
@@ -4705,7 +4705,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 79
+    "rating": 80
   },
   {
     "id": "p_231",
@@ -4727,7 +4727,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Legbreak Googly"
     },
-    "rating": 65
+    "rating": 79
   },
   {
     "id": "p_232",
@@ -4749,7 +4749,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 71
+    "rating": 81
   },
   {
     "id": "p_234",
@@ -4771,7 +4771,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 88
+    "rating": 85
   },
   {
     "id": "p_236",
@@ -4793,7 +4793,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 96
+    "rating": 78
   },
   {
     "id": "p_237",
@@ -4815,7 +4815,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 77
+    "rating": 79
   },
   {
     "id": "p_238",
@@ -4837,7 +4837,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 91
+    "rating": 86
   },
   {
     "id": "p_239",
@@ -4859,7 +4859,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 89
+    "rating": 85
   },
   {
     "id": "p_240",
@@ -4881,7 +4881,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 79
+    "rating": 88
   },
   {
     "id": "p_241",
@@ -4903,7 +4903,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 91
+    "rating": 83
   },
   {
     "id": "p_242",
@@ -4925,7 +4925,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 94
+    "rating": 84
   },
   {
     "id": "p_243",
@@ -4969,7 +4969,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 86
+    "rating": 81
   },
   {
     "id": "p_245",
@@ -4991,7 +4991,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Fast medium"
     },
-    "rating": 72
+    "rating": 82
   },
   {
     "id": "p_246",
@@ -5013,7 +5013,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Slow Left arm Orthodox"
     },
-    "rating": 88
+    "rating": 76
   },
   {
     "id": "p_247",
@@ -5035,7 +5035,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Left arm Medium fast"
     },
-    "rating": 73
+    "rating": 83
   },
   {
     "id": "p_248",
@@ -5079,7 +5079,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 93
+    "rating": 95
   },
   {
     "id": "p_250",
@@ -5101,7 +5101,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 96
+    "rating": 86
   },
   {
     "id": "p_251",
@@ -5123,7 +5123,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 65
+    "rating": 78
   },
   {
     "id": "p_252",
@@ -5145,7 +5145,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Left arm Medium"
     },
-    "rating": 71
+    "rating": 86
   },
   {
     "id": "p_253",
@@ -5167,7 +5167,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium fast"
     },
-    "rating": 77
+    "rating": 86
   },
   {
     "id": "p_254",
@@ -5189,7 +5189,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 87
+    "rating": 82
   },
   {
     "id": "p_255",
@@ -5211,7 +5211,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Legbreak"
     },
-    "rating": 66
+    "rating": 80
   },
   {
     "id": "p_256",
@@ -5233,7 +5233,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 78
+    "rating": 77
   },
   {
     "id": "p_257",
@@ -5255,7 +5255,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Medium"
     },
-    "rating": 85
+    "rating": 84
   },
   {
     "id": "p_258",
@@ -5277,7 +5277,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 65
+    "rating": 77
   },
   {
     "id": "p_262",
@@ -5299,7 +5299,7 @@
       "battingStyle": "Left hand Bat",
       "bowlingStyle": "Right arm Offbreak"
     },
-    "rating": 79
+    "rating": 85
   },
   {
     "id": "p_free_1",
@@ -5343,7 +5343,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 79
+    "rating": 75
   },
   {
     "id": "p_free_3",
@@ -5365,7 +5365,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 71
+    "rating": 77
   },
   {
     "id": "p_free_4",
@@ -5387,7 +5387,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 81
+    "rating": 77
   },
   {
     "id": "p_free_5",
@@ -5409,7 +5409,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 83
+    "rating": 75
   },
   {
     "id": "p_free_6",
@@ -5431,7 +5431,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 71
+    "rating": 77
   },
   {
     "id": "p_free_7",
@@ -5453,7 +5453,7 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 81
+    "rating": 77
   },
   {
     "id": "p_free_8",
@@ -5475,6 +5475,6 @@
       "battingStyle": "Right hand Bat",
       "bowlingStyle": "Right arm Fast"
     },
-    "rating": 81
+    "rating": 77
   }
 ]
