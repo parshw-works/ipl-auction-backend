@@ -840,14 +840,15 @@ function triggerScreenMicroShake() {
   });
 }
 
-// Floating Currency Feedback Animation (+₹25 L or +₹1 Cr)
+// Floating Currency Feedback Animation (+₹25 L or +₹1 Cr) - High Visibility Broadcast Pill
 function spawnFloatingCurrency(text) {
   if (!bidFloatChipContainer) return;
   const chip = document.createElement('div');
-  chip.className = 'float-chip-anim px-3 py-1 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 font-black font-display text-sm tracking-wider shadow-xl shadow-amber-500/40 border border-white/50 inline-block';
-  chip.textContent = text;
+  chip.className = 'float-chip-anim px-2.5 sm:px-3 py-1 rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-400 text-slate-950 font-black font-display text-xs sm:text-sm tracking-wider border border-white/90 inline-flex items-center gap-1.5 select-none shadow-2xl';
+  chip.style.boxShadow = '0 8px 24px -2px rgba(245, 158, 11, 0.75), 0 0 16px rgba(255, 255, 255, 0.5)';
+  chip.innerHTML = `<span class="text-emerald-950 font-black text-xs leading-none">▲</span><span>${text}</span>`;
   bidFloatChipContainer.appendChild(chip);
-  setTimeout(() => chip.remove(), 950);
+  setTimeout(() => chip.remove(), 1050);
 }
 
 // =========================================================================
@@ -2380,6 +2381,7 @@ if (btnReturnHomeFromPodium) {
 // OLYMPIC PODIUM & LEADERBOARD SYSTEM (0–100 Standardized Rating Engine)
 const podiumTop3Container = document.getElementById('podiumTop3Container');
 const podiumRestTableBody = document.getElementById('podiumRestTableBody');
+const celebratedPodiumRooms = new Set();
 
 function renderPodium(standings) {
   if (!standings || !Array.isArray(standings) || standings.length === 0) {
@@ -2411,18 +2413,23 @@ function renderPodium(standings) {
   const top3 = standings.slice(0, 3);
   const rest = standings.slice(3);
 
-  // Trigger celebration effects
-  if (typeof confetti === 'function') {
-    confetti({ particleCount: 220, spread: 120, origin: { y: 0.55 } });
-    setTimeout(() => {
-      confetti({ particleCount: 150, angle: 60, spread: 70, origin: { x: 0.1, y: 0.6 } });
-      confetti({ particleCount: 150, angle: 120, spread: 70, origin: { x: 0.9, y: 0.6 } });
-    }, 450);
-  }
+  // Trigger celebration effects ONLY ONCE per room session for this client
+  const currentRoomCode = (currentRoom && currentRoom.code) ? currentRoom.code : 'active_room';
+  if (!celebratedPodiumRooms.has(currentRoomCode)) {
+    celebratedPodiumRooms.add(currentRoomCode);
 
-  const champion = top3[0];
-  if (champion) {
-    speakCommentary(`Congratulations to ${champion.teamName} and Manager ${champion.managerName} for clinching the IPL Mega Auction Championship title!`);
+    if (typeof confetti === 'function') {
+      confetti({ particleCount: 220, spread: 120, origin: { y: 0.55 } });
+      setTimeout(() => {
+        confetti({ particleCount: 150, angle: 60, spread: 70, origin: { x: 0.1, y: 0.6 } });
+        confetti({ particleCount: 150, angle: 120, spread: 70, origin: { x: 0.9, y: 0.6 } });
+      }, 450);
+    }
+
+    const champion = top3[0];
+    if (champion) {
+      speakCommentary(`Congratulations to ${champion.teamName} and Manager ${champion.managerName} for clinching the IPL Mega Auction Championship title!`);
+    }
   }
 
   // Helper to reliably get franchise metadata (prevent undefined)
@@ -2459,7 +2466,7 @@ function renderPodium(standings) {
         
         <!-- RANK 1 CARD (TOP FULL-WIDTH ON MOBILE, CENTER ELEVATED ON DESKTOP) -->
         ${first ? `
-        <div class="w-full md:flex-1 md:max-w-[310px] md:order-2 z-10 flex flex-col items-center">
+        <div class="w-full md:flex-1 md:max-w-[310px] md:order-2 z-10 flex flex-col items-center champion-reveal-anim">
           <div class="crown-float text-amber-400 text-3xl sm:text-4xl mb-1 filter drop-shadow-[0_0_15px_rgba(255,184,0,0.85)]">
             <i class="fa-solid fa-crown"></i>
           </div>
@@ -2658,6 +2665,13 @@ function registerSocketAuctionListeners(s) {
     currentBidAmount.classList.remove('animate-bid-punch');
     void currentBidAmount.offsetWidth; // re-flow
     currentBidAmount.classList.add('animate-bid-punch');
+
+    const spotlightBar = document.getElementById('auctionSpotlightBar');
+    if (spotlightBar) {
+      spotlightBar.classList.remove('bid-flash-active');
+      void spotlightBar.offsetWidth;
+      spotlightBar.classList.add('bid-flash-active');
+    }
 
     // Spawn floating currency chip (+₹25 L or +₹1.00 Cr)
     if (bidDiff > 0 && prevBid > 0) {

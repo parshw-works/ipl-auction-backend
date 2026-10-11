@@ -54,6 +54,17 @@ function generateSessionToken() {
   return crypto.randomBytes(16).toString('hex');
 }
 
+// Fisher-Yates array shuffle for randomized auction player sequence
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = array[i];
+    array[i] = array[j];
+    array[j] = temp;
+  }
+  return array;
+}
+
 // Franchise configurations with local vector logos
 const IPL_TEAMS = [
   { id: 'CSK', name: 'Chennai Super Kings', color: '#FDB913', textColor: '#000000', logo: '/logos/CSK.svg', icon: '🦁' },
@@ -398,8 +409,8 @@ io.on('connection', (socket) => {
       const roomCode = generateRoomCode();
       const token = data.sessionToken || generateSessionToken();
 
-      // Clone players pool
-      const playerPool = JSON.parse(JSON.stringify(playersDataset));
+      // Clone and shuffle players pool for randomized presentation
+      const playerPool = shuffleArray(JSON.parse(JSON.stringify(playersDataset)));
 
       const decibelMap = {};
       IPL_TEAMS.forEach(t => { decibelMap[t.id] = 50; });
@@ -784,6 +795,9 @@ io.on('connection', (socket) => {
       if (room.playerPool.length === 0) {
         return callback && callback({ success: false, error: 'No players left in pool!' });
       }
+
+      // Shuffle player pool so every match has a completely randomized, unique player order
+      shuffleArray(room.playerPool);
 
       room.isStarted = true;
       room.status = 'AUCTION';

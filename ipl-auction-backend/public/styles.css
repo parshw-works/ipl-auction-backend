@@ -200,27 +200,68 @@ html, body {
   will-change: transform;
 }
 
-/* Floating Currency Feedback (+₹25 L / +₹1 Cr) */
+/* Floating Currency Feedback (+₹25 L / +₹1 Cr) - High Visibility Broadcast Pop */
 @keyframes floatUpFade {
-  0% { opacity: 1; transform: translate3d(0, 0, 0) scale(0.9); }
-  60% { opacity: 1; transform: translate3d(0, -22px, 0) scale(1.1); }
-  100% { opacity: 0; transform: translate3d(0, -42px, 0) scale(1.15); }
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.7);
+    filter: drop-shadow(0 0 16px rgba(255, 184, 0, 0.95));
+  }
+  20% {
+    opacity: 1;
+    transform: translate3d(0, -8px, 0) scale(1.18);
+    filter: drop-shadow(0 0 24px rgba(255, 184, 0, 0.9));
+  }
+  50% {
+    opacity: 1;
+    transform: translate3d(0, -22px, 0) scale(1.06);
+    filter: drop-shadow(0 0 16px rgba(255, 184, 0, 0.7));
+  }
+  80% {
+    opacity: 0.9;
+    transform: translate3d(0, -38px, 0) scale(1.02);
+    filter: drop-shadow(0 0 10px rgba(255, 184, 0, 0.4));
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -56px, 0) scale(0.92);
+    filter: drop-shadow(0 0 0px rgba(255, 184, 0, 0));
+  }
 }
 
 .float-chip-anim {
-  animation: floatUpFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
+  animation: floatUpFade 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
+  z-index: 60 !important;
+  pointer-events: none;
 }
 
-/* Bid Amount Punch Scale Animation */
+/* Bid Amount Punch Scale Animation & Gold Shockwave */
 @keyframes bidPunch {
-  0% { transform: scale(1); }
-  45% { transform: scale(1.16); }
-  100% { transform: scale(1); }
+  0% { transform: scale(1); filter: brightness(1); }
+  25% { transform: scale(1.24); filter: brightness(1.4) drop-shadow(0 0 22px rgba(255, 184, 0, 0.95)); color: #ffffff; }
+  50% { transform: scale(0.98); filter: brightness(1.15) drop-shadow(0 0 12px rgba(255, 184, 0, 0.6)); }
+  75% { transform: scale(1.05); }
+  100% { transform: scale(1); filter: brightness(1); }
 }
 .animate-bid-punch {
-  animation: bidPunch 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  will-change: transform;
+  animation: bidPunch 0.42s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  will-change: transform, filter;
+}
+
+/* Arena Spotlight Bar Ripple Flash on Bid Acceptance */
+@keyframes bidFlashGlow {
+  0% {
+    box-shadow: inset 0 0 35px rgba(255, 184, 0, 0.7), 0 0 25px rgba(255, 184, 0, 0.5);
+    border-color: rgba(255, 184, 0, 0.9);
+  }
+  100% {
+    box-shadow: none;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+.bid-flash-active {
+  animation: bidFlashGlow 0.65s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Heartbeat Timer Pulse for Panic Phase (<4s) */
@@ -359,11 +400,26 @@ html, body {
   will-change: transform;
 }
 
+/* Champion Card Grand Reveal Animation */
+@keyframes championPop {
+  0% { opacity: 0; transform: translateY(18px) scale(0.94); }
+  60% { opacity: 1; transform: translateY(-4px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.champion-reveal-anim {
+  animation: championPop 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 /* Pedestal Gradients & Accents */
+@keyframes goldPulseGlow {
+  0% { box-shadow: 0 0 25px rgba(255, 215, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+  50% { box-shadow: 0 0 45px rgba(255, 215, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+  100% { box-shadow: 0 0 25px rgba(255, 215, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+}
 .pedestal-gold {
   background: linear-gradient(180deg, rgba(255, 215, 0, 0.22) 0%, rgba(18, 26, 50, 0.98) 100%);
   border: 2px solid #FFD700;
-  box-shadow: 0 0 35px rgba(255, 215, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  animation: goldPulseGlow 3s ease-in-out infinite;
 }
 
 .pedestal-silver {
