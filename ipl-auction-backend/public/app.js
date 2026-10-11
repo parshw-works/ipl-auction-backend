@@ -208,7 +208,7 @@ window.userSettings = {
   }
 };
 
-// Global Click Delegation on Document for Voice & Cheer Toggles
+// Global Click Delegation on Document for Voice, Cheer, Settings & Copy
 document.addEventListener('click', (e) => {
   const voiceTarget = e.target.closest('#toggleVoiceBtn, #btn-voice-toggle');
   if (voiceTarget) {
@@ -223,6 +223,67 @@ document.addEventListener('click', (e) => {
     e.preventDefault();
     const enabled = window.userSettings.toggleCheers();
     showToast(enabled ? 'Cheer FX visible 📣' : 'Cheer FX hidden 🔕', 'info');
+    return;
+  }
+
+  // Settings Menu Dropdown Toggle
+  const settingsBtn = e.target.closest('#btnSettingsMenu');
+  const dropdown = document.getElementById('settingsDropdown');
+  if (settingsBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dropdown) dropdown.classList.toggle('hidden');
+    return;
+  }
+  // Click outside to close settings dropdown
+  if (dropdown && !dropdown.classList.contains('hidden') && !e.target.closest('#settingsDropdown')) {
+    dropdown.classList.add('hidden');
+  }
+
+  // SFX Toggle
+  const sfxBtn = e.target.closest('#btnToggleSFX');
+  if (sfxBtn) {
+    e.preventDefault();
+    window.auctionAudio.sfxEnabled = !window.auctionAudio.sfxEnabled;
+    const txt = document.getElementById('sfxToggleText');
+    if (txt) {
+      txt.textContent = window.auctionAudio.sfxEnabled ? 'ON' : 'OFF';
+      txt.className = window.auctionAudio.sfxEnabled ? 'text-[10px] font-mono text-emerald-400 font-bold' : 'text-[10px] font-mono text-slate-500 font-bold';
+    }
+    showToast(window.auctionAudio.sfxEnabled ? 'Sound Effects enabled 🔔' : 'Sound Effects muted 🔕', 'info');
+    return;
+  }
+
+  // Header Leave Room
+  const leaveBtn = e.target.closest('#btnLeaveRoomHeader');
+  if (leaveBtn) {
+    e.preventDefault();
+    if (dropdown) dropdown.classList.add('hidden');
+    if (confirm('Leave current room and return to Home Gateway?')) {
+      if (currentRoom) removeActiveSession(currentRoom.code);
+      performSessionCleanupBeforeNewMatch();
+      navigate('home', null, true);
+      showToast('Left match. Returned to Home.', 'info');
+    }
+    return;
+  }
+
+  // Click on user franchise pill in header opens quick squad modal
+  const pillTarget = e.target.closest('#userFranchisePill');
+  if (pillTarget && myTeam) {
+    e.preventDefault();
+    openSquadModal(myTeam);
+    return;
+  }
+
+  // Click on room badge copies code
+  const roomBadgeTarget = e.target.closest('#roomBadge');
+  if (roomBadgeTarget && currentRoom && currentRoom.code) {
+    navigator.clipboard.writeText(currentRoom.code).then(() => {
+      showToast(`Room code [${currentRoom.code}] copied to clipboard! 📋`, 'success');
+    }).catch(() => {
+      showToast(`Room code: ${currentRoom.code}`, 'info');
+    });
     return;
   }
 });
@@ -314,6 +375,7 @@ function getAudioContext() {
 }
 
 function playBeep(freq = 440, type = 'sine', duration = 0.15) {
+  if (window.auctionAudio && !window.auctionAudio.sfxEnabled) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -813,6 +875,66 @@ function getRouteUrl(view, roomCode) {
   return '/';
 }
 
+function updateHeaderContext(viewName, roomCode = null) {
+  const norm = String(viewName).toLowerCase().replace('view-', '').replace('view', '');
+  const rBadge = document.getElementById('roomBadge');
+  const rCode = document.getElementById('currentRoomCode');
+  const userPill = document.getElementById('userFranchisePill');
+  const lobbyCount = document.getElementById('lobbyPlayerCountBadge');
+  const toggleDrawer = document.getElementById('toggleDrawerBtn');
+  const codeToUse = roomCode || (currentRoom ? currentRoom.code : null);
+
+  if (norm === 'home' || norm === 'welcome') {
+    if (rBadge) rBadge.classList.add('hidden');
+    if (userPill) userPill.classList.add('hidden');
+    if (lobbyCount) lobbyCount.classList.add('hidden');
+    if (toggleDrawer) toggleDrawer.classList.add('hidden');
+  } else if (norm === 'lobby') {
+    if (rBadge) {
+      rBadge.classList.remove('hidden');
+      rBadge.classList.add('flex');
+      if (rCode && codeToUse) rCode.textContent = codeToUse;
+    }
+    if (userPill) userPill.classList.add('hidden');
+    if (lobbyCount) {
+      lobbyCount.classList.remove('hidden');
+      lobbyCount.classList.add('flex');
+      const countEl = document.getElementById('lobbyPlayerCountText');
+      const total = currentRoom && currentRoom.teams ? currentRoom.teams.length : 0;
+      if (countEl) countEl.textContent = `${total}/10`;
+    }
+    if (toggleDrawer) toggleDrawer.classList.add('hidden');
+  } else if (norm === 'auction') {
+    if (rBadge) {
+      rBadge.classList.remove('hidden');
+      rBadge.classList.add('flex');
+      if (rCode && codeToUse) rCode.textContent = codeToUse;
+    }
+    if (userPill) {
+      userPill.classList.remove('hidden');
+      userPill.classList.add('flex');
+      updateUserFranchisePill();
+    }
+    if (lobbyCount) lobbyCount.classList.add('hidden');
+    if (toggleDrawer) {
+      toggleDrawer.classList.remove('hidden');
+      toggleDrawer.classList.add('flex');
+    }
+  } else if (norm === 'podium' || norm === 'finished') {
+    if (rBadge) {
+      rBadge.classList.remove('hidden');
+      rBadge.classList.add('flex');
+      if (rCode && codeToUse) rCode.textContent = codeToUse;
+    }
+    if (userPill) userPill.classList.add('hidden');
+    if (lobbyCount) lobbyCount.classList.add('hidden');
+    if (toggleDrawer) {
+      toggleDrawer.classList.remove('hidden');
+      toggleDrawer.classList.add('flex');
+    }
+  }
+}
+
 function showView(viewName, roomCode = null) {
   const norm = String(viewName).toLowerCase().replace('view-', '').replace('view', '');
 
@@ -821,6 +943,8 @@ function showView(viewName, roomCode = null) {
   if (viewLobby) viewLobby.classList.add('hidden');
   if (viewAuction) viewAuction.classList.add('hidden');
   if (viewFinished) viewFinished.classList.add('hidden');
+
+  updateHeaderContext(norm, roomCode);
 
   if (norm === 'home' || norm === 'welcome') {
     currentViewState = 'home';
@@ -1540,7 +1664,7 @@ function updateAuctionView(room) {
   playerBatBowlStyle.textContent = `${player.stats.battingStyle || 'Right hand Bat'} • ${player.stats.bowlingStyle || 'Right arm Medium'}`;
   playerRoleBadge.textContent = player.role;
   playerCountryBadge.textContent = player.isOverseas ? `✈️ ${player.country}` : `🇮🇳 ${player.country}`;
-  playerTierBadge.innerHTML = `${player.tier} • ★ ${player.rating || 75}/100 <span class="text-[10px] opacity-75 font-mono">(${room.auctionIndex + 1}/${room.totalPlayers})</span>`;
+  playerTierBadge.innerHTML = `LOT #${room.auctionIndex + 1} • ${player.tier}`;
   playerOriginalTeam.textContent = player.originalTeam || 'None';
   playerBasePrice.textContent = formatCurrency(player.basePrice);
   if (playerRatingScore) {
