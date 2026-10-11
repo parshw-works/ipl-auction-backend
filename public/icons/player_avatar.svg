@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
-  <rect width="200" height="200" rx="24" fill="#0F172A"/>
-  <circle cx="100" cy="80" r="38" fill="#334155"/>
-  <path d="M42 180C42 144.654 70.6538 116 106 116H94C129.346 116 158 144.654 158 180V186H42V180Z" fill="#334155"/>
-  <!-- Cricket Cap Silhouette -->
-  <path d="M66 74C66 56 81 44 100 44C119 44 134 56 134 74H66Z" fill="#F59E0B"/>
-  <path d="M96 48L152 56C152 56 142 66 120 66L96 48Z" fill="#D97706"/>
-</svg>
