@@ -1042,30 +1042,44 @@ window.addEventListener('popstate', (e) => {
   showView(view, roomCode);
 });
 
-// Toast Notifications
+// Non-Intrusive Centered Toast Notifications with 2.5s Deduplication
+let lastToastMessage = '';
+let lastToastTime = 0;
+
 function showToast(message, type = 'info') {
+  if (!message || !toastContainer) return;
+  const now = Date.now();
+  if (lastToastMessage === message && (now - lastToastTime < 2500)) {
+    return; // Deduplicate identical messages to prevent double/triple popups
+  }
+  lastToastMessage = message;
+  lastToastTime = now;
+
+  // Enforce single active toast: remove existing to prevent screen-covering stacks
+  while (toastContainer.firstChild) {
+    toastContainer.removeChild(toastContainer.firstChild);
+  }
+
   const toast = document.createElement('div');
   const bgClasses = {
-    info: 'bg-slate-800 border-slate-700 text-slate-100',
-    success: 'bg-emerald-900/90 border-emerald-600 text-emerald-100',
-    error: 'bg-rose-900/90 border-rose-600 text-rose-100',
-    warning: 'bg-amber-900/90 border-amber-600 text-amber-100'
+    info: 'bg-[#0b1227]/95 border-slate-700 text-slate-100 shadow-slate-950/80',
+    success: 'bg-emerald-950/95 border-emerald-500/70 text-emerald-100 shadow-emerald-950/80',
+    error: 'bg-rose-950/95 border-rose-500/70 text-rose-100 shadow-rose-950/80',
+    warning: 'bg-amber-950/95 border-amber-500/70 text-amber-100 shadow-amber-950/80'
   };
 
-  toast.className = `p-3.5 rounded-xl border shadow-xl flex items-center justify-between text-xs font-medium backdrop-blur-md transition-all duration-300 pointer-events-auto transform translate-y-2 opacity-0 ${bgClasses[type] || bgClasses.info}`;
+  toast.className = `py-1.5 px-3.5 rounded-full border shadow-2xl flex items-center space-x-2 text-[11px] sm:text-xs font-semibold backdrop-blur-md transition-all duration-300 pointer-events-auto transform -translate-y-2 opacity-0 select-none ${bgClasses[type] || bgClasses.info}`;
   toast.innerHTML = `
-    <div class="flex items-center space-x-2">
-      <i class="fa-solid ${type === 'error' ? 'fa-circle-xmark' : type === 'success' ? 'fa-circle-check' : 'fa-bell'}"></i>
-      <span>${message}</span>
-    </div>
+    <i class="fa-solid ${type === 'error' ? 'fa-circle-xmark text-rose-400' : type === 'success' ? 'fa-circle-check text-emerald-400' : type === 'warning' ? 'fa-triangle-exclamation text-amber-400' : 'fa-bell text-laserCyan'} text-xs"></i>
+    <span class="truncate max-w-[280px] sm:max-w-sm">${message}</span>
   `;
 
   toastContainer.appendChild(toast);
-  setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
+  requestAnimationFrame(() => toast.classList.remove('-translate-y-2', 'opacity-0'));
   setTimeout(() => {
-    toast.classList.add('opacity-0', 'translate-x-4');
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
+    toast.classList.add('opacity-0', '-translate-y-2');
+    setTimeout(() => toast.remove(), 250);
+  }, 3000);
 }
 
 // Tab Switching
@@ -1707,6 +1721,7 @@ function updateAuctionView(room) {
     highestBidderPlaceholderIcon.classList.remove('hidden');
     highestBidderLogoImg.classList.add('hidden');
     highestBidderBadge.style.backgroundColor = '#1E293B';
+    updateMatchActivityWire(`📢 LOT #${room.auctionIndex + 1}: ${player.name} (${player.role}, ${player.isOverseas ? '✈️ OS' : '🇮🇳 Ind'}) • Base: ${formatCurrency(player.basePrice)}`, 'lot');
   }
 
   // Timer idle state if not started yet
@@ -2304,8 +2319,77 @@ if (btnVoteUnsold) {
 
 btnViewFinalSquads.addEventListener('click', openTeamsDrawer);
 
+// LIVE MATCH ACTIVITY WIRE (Non-Intrusive Broadcast Activity Engine)
+function updateMatchActivityWire(message, type = 'info') {
+  const wire = document.getElementById('matchActivityWire');
+  const badge = document.getElementById('activityTagBadge');
+  const tagText = document.getElementById('activityTagText');
+  const msgText = document.getElementById('liveFeedTicker');
+  if (!msgText || !message) return;
+
+  const typeConfig = {
+    sold: {
+      tag: 'HAMMER SOLD',
+      badgeClass: 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-600/30'
+    },
+    unsold: {
+      tag: 'UNSOLD',
+      badgeClass: 'bg-rose-700 text-white border-rose-500 shadow-rose-700/30'
+    },
+    bid: {
+      tag: 'NEW BID',
+      badgeClass: 'bg-amber-500 text-slate-950 font-black border-amber-300 shadow-amber-500/30'
+    },
+    lot: {
+      tag: 'ON HAMMER',
+      badgeClass: 'bg-cyan-600 text-white border-cyan-400 shadow-cyan-600/30'
+    },
+    announcement: {
+      tag: 'ARENA',
+      badgeClass: 'bg-indigo-600 text-white border-indigo-400 shadow-indigo-600/30'
+    },
+    warning: {
+      tag: 'NOTICE',
+      badgeClass: 'bg-amber-600 text-white border-amber-400 shadow-amber-600/30'
+    },
+    info: {
+      tag: 'LIVE WIRE',
+      badgeClass: 'bg-rose-600 text-white border-rose-400 shadow-rose-600/30'
+    }
+  };
+
+  const cfg = typeConfig[type] || typeConfig.info;
+  if (tagText) tagText.textContent = cfg.tag;
+  if (badge) {
+    badge.className = `px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black font-display uppercase tracking-wider flex-shrink-0 flex items-center gap-1 shadow-sm border ${cfg.badgeClass}`;
+  }
+  msgText.textContent = message;
+
+  if (wire) {
+    wire.classList.remove('activity-flash-active');
+    void wire.offsetWidth; // re-flow
+    wire.classList.add('activity-flash-active');
+  }
+}
+
+// Hook wire click to open logs drawer
+const btnOpenLogsFromWire = document.getElementById('btnOpenLogsFromWire');
+if (btnOpenLogsFromWire) {
+  btnOpenLogsFromWire.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openLogsDrawer();
+  });
+}
+const matchActivityWire = document.getElementById('matchActivityWire');
+if (matchActivityWire) {
+  matchActivityWire.addEventListener('click', () => {
+    openLogsDrawer();
+  });
+}
+
 // Broadcast Event Feed update
 function renderLogEntry(entry) {
+  if (!entry || !entry.message) return;
   const row = document.createElement('div');
   
   const typeIcons = {
@@ -2329,7 +2413,7 @@ function renderLogEntry(entry) {
   row.className = `p-2.5 rounded-xl border border-white/5 my-1 text-xs transition duration-200 ${typeBorders[entry.type] || 'bg-[#080d1e]'}`;
   row.innerHTML = `
     <div class="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
-      <span class="font-mono">${entry.time}</span>
+      <span class="font-mono">${entry.time || ''}</span>
       <span class="font-display font-bold uppercase tracking-wider text-slate-400">${entry.type || 'INFO'}</span>
     </div>
     <div class="font-sans text-slate-200 leading-snug">
@@ -2337,8 +2421,8 @@ function renderLogEntry(entry) {
     </div>
   `;
 
-  fullLogsFeed.prepend(row);
-  liveFeedTicker.textContent = entry.message;
+  if (fullLogsFeed) fullLogsFeed.prepend(row);
+  updateMatchActivityWire(entry.message, entry.type);
 }
 
 
@@ -2591,7 +2675,8 @@ window.inspectTeamById = function(teamId) {
 
 // SOCKET.IO REAL-TIME LISTENERS
 function registerSocketAuctionListeners(s) {
-  if (!s) return;
+  if (!s || s._auctionListenersAttached) return;
+  s._auctionListenersAttached = true;
 
   s.on('room_update', (roomState) => {
     currentRoom = roomState;
@@ -2704,6 +2789,10 @@ function registerSocketAuctionListeners(s) {
     playBidSound();
     updateBidButton();
 
+    // Update Live Match Activity Wire with latest bid
+    const bidderTag = highestBidder ? highestBidder.teamId : 'TEAM';
+    updateMatchActivityWire(`💰 ${bidderTag} raised bid to ${formatCurrency(currentBid)}`, 'bid');
+
     // Commentary voice on major or new bids
     const priceText = (currentBid / 10000000).toFixed(2);
     speakCommentary(`${highestBidder.teamId} raises the bid to ${priceText} Crores!`);
@@ -2725,7 +2814,9 @@ function registerSocketAuctionListeners(s) {
       confetti({ particleCount: 160, spread: 100, origin: { y: 0.6 } });
     }
 
-    showToast(`🔨 SOLD! ${player.name} to ${team.franchiseId} for ${formatCurrency(price)}!`, 'success');
+    // Direct to Live Match Activity Wire without screen-covering toast
+    const buyerName = team ? (team.name || team.franchiseId) : 'Franchise';
+    updateMatchActivityWire(`🔨 SOLD! ${player.name} to ${buyerName} for ${formatCurrency(price)}`, 'sold');
   });
 
   s.on('player_unsold', ({ player }) => {
@@ -2737,7 +2828,9 @@ function registerSocketAuctionListeners(s) {
     playerUnsoldWatermark.classList.remove('hidden');
     playerUnsoldWatermark.classList.add('stamp-sold-anim');
     speakCommentary(`No bids received. ${player.name} goes unsold.`);
-    showToast(`❌ ${player.name} went UNSOLD!`, 'warning');
+
+    // Direct to Live Match Activity Wire without screen-covering toast
+    updateMatchActivityWire(`❌ ${player.name} went UNSOLD at base price ₹${(player.basePrice / 10000000).toFixed(2)} Cr`, 'unsold');
   });
 
   s.on('all_teams_folded', ({ player, highestBidder }) => {
@@ -2748,14 +2841,13 @@ function registerSocketAuctionListeners(s) {
 
     if (highestBidder) {
       speakCommentary(`All remaining teams have folded! ${player.name} is sold early to ${highestBidder.teamName}!`);
-      showToast(`⚡ All teams folded! Hammer falls early on ${player.name}!`, 'info');
+      updateMatchActivityWire(`⚡ All teams folded! Hammer falls early: ${player.name} to ${highestBidder.teamName}`, 'sold');
     } else {
       speakCommentary(`All teams have folded without any bids. ${player.name} goes unsold.`);
-      showToast(`⚡ All teams folded! ${player.name} passed unsold!`, 'warning');
+      updateMatchActivityWire(`⚡ All teams folded! ${player.name} passed unsold`, 'unsold');
     }
   });
 
-  
   s.on('auction_concluding', ({ reason, countdown }) => {
     if (auctionConcludingBanner) {
       if (auctionConcludingText) {
@@ -2763,14 +2855,14 @@ function registerSocketAuctionListeners(s) {
       }
       auctionConcludingBanner.classList.remove('hidden');
     }
-    showToast(`Auction concluding! Tallying final standings in ${countdown || 5} seconds...`, 'warning');
+    updateMatchActivityWire(`🏁 Auction concluding in ${countdown || 5}s (${reason || 'wrapping up'})...`, 'announcement');
     playBeep(440, 'triangle', 0.4);
   });
 
   s.on('auction_concluded', ({ standings, roomState }) => {
     if (auctionConcludingBanner) auctionConcludingBanner.classList.add('hidden');
     if (roomState) currentRoom = roomState;
-    showToast('Auction concluded! Championship standings locked.', 'success');
+    updateMatchActivityWire('🏆 Auction concluded! Championship standings locked.', 'sold');
     renderPodium(standings);
   });
 

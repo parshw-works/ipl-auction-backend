@@ -264,6 +264,38 @@ html, body {
   animation: bidFlashGlow 0.65s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Live Match Activity Wire Flash */
+@keyframes wireFlashGlow {
+  0% {
+    background-color: rgba(255, 184, 0, 0.22);
+    border-color: rgba(255, 184, 0, 0.8);
+    box-shadow: 0 0 20px rgba(255, 184, 0, 0.35);
+  }
+  100% {
+    background-color: rgba(8, 13, 30, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  }
+}
+.activity-flash-active {
+  animation: wireFlashGlow 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Non-Intrusive Centered Micro-Toast System */
+#toastContainer {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  max-width: 92vw;
+}
+
 /* Heartbeat Timer Pulse for Panic Phase (<4s) */
 @keyframes timerPulseCrit {
   0% { transform: scale(1); }
