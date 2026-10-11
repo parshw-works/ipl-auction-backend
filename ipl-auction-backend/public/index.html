@@ -463,10 +463,17 @@
               </div>
             </div>
 
-            <div class="text-[11px] sm:text-xs text-slate-400 mb-1.5 sm:mb-3.5 flex items-center space-x-2">
+            <div class="text-[11px] sm:text-xs text-slate-400 mb-1.5 sm:mb-3.5 flex items-center space-x-2 flex-wrap gap-y-1">
               <span>Origin: <b id="playerOriginalTeam" class="text-amber-400 font-display font-bold">RCB</b></span>
               <span class="text-slate-600">•</span>
               <span>Base Price: <b id="playerBasePrice" class="text-victoryEmerald font-mono font-bold">₹2.00 Cr</b></span>
+              <span class="text-slate-600">•</span>
+              <div id="playerRatingBox" class="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-400/50 shadow-sm shadow-amber-500/20">
+                <i class="fa-solid fa-star text-amber-400 text-[11px] animate-pulse"></i>
+                <span class="text-[10px] text-slate-400 font-display uppercase font-bold tracking-wider">Rating:</span>
+                <span id="playerRatingScore" class="font-display font-black text-xs text-amber-300">--</span>
+                <span class="text-[9px] text-slate-400 font-mono">/100</span>
+              </div>
             </div>
 
             <!-- Stats Telemetry Strip -->
@@ -610,7 +617,7 @@
         <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
           <h3 class="text-sm sm:text-base font-black font-display text-white uppercase tracking-wider flex items-center space-x-2">
             <i class="fa-solid fa-list-ol text-laserCyan"></i>
-            <span>COMPLETE FRANCHISE STANDINGS (RANKS 4–10)</span>
+            <span>ALL FRANCHISE STANDINGS & SQUAD LEADERBOARD</span>
           </h3>
           <span class="text-[10px] text-slate-400 font-mono">Tap any franchise to inspect player points</span>
         </div>
@@ -796,7 +803,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=16.0"></script>
+  <script src="/app.js?v=17.0"></script>
   <script>
     // WIPE ALL SERVICE WORKERS & ALL CACHES TO PREVENT ANY OLD CODE FREEZING
     if ('serviceWorker' in navigator) {

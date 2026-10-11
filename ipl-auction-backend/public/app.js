@@ -326,6 +326,7 @@ const playerCountryBadge = document.getElementById('playerCountryBadge');
 const playerTierBadge = document.getElementById('playerTierBadge');
 const playerOriginalTeam = document.getElementById('playerOriginalTeam');
 const playerBasePrice = document.getElementById('playerBasePrice');
+const playerRatingScore = document.getElementById('playerRatingScore');
 const auctionTimer = document.getElementById('auctionTimer');
 const playerSoldWatermark = document.getElementById('playerSoldWatermark');
 const playerUnsoldWatermark = document.getElementById('playerUnsoldWatermark');
@@ -1240,6 +1241,9 @@ function updateAuctionView(room) {
   playerTierBadge.innerHTML = `${player.tier} • ★ ${player.rating || 75}/100 <span class="text-[10px] opacity-75 font-mono">(${room.auctionIndex + 1}/${room.totalPlayers})</span>`;
   playerOriginalTeam.textContent = player.originalTeam || 'None';
   playerBasePrice.textContent = formatCurrency(player.basePrice);
+  if (playerRatingScore) {
+    playerRatingScore.textContent = player.rating || 75;
+  }
 
   playerImage.src = player.photo;
 
@@ -1335,51 +1339,37 @@ function updateBidButton() {
   btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
   btnPlaceBid.classList.add('from-amber-500', 'to-amber-400');
 
+  let cannotBidReason = null;
   if (!myTeam) {
-    btnPlaceBid.disabled = true;
-    bidStatusNotice.textContent = 'Select a team first to place bids';
-    bidStatusNotice.classList.remove('hidden');
-    return;
+    cannotBidReason = 'Select a team first to place bids';
+  } else if (currentRoom.highestBidder && (currentRoom.highestBidder.socketId === socket.id || currentRoom.highestBidder.teamId === myTeam.franchiseId)) {
+    // Leading bidder state handled separately
+  } else if (myTeam.purse < nextAmount) {
+    cannotBidReason = `Insufficient purse! Needed ${formatCurrency(nextAmount)}`;
+  } else if (myTeam.squadCount >= currentRoom.settings.maxSquadSize) {
+    cannotBidReason = `Squad full (${currentRoom.settings.maxSquadSize} players)`;
+  } else if (currentRoom.currentPlayer.isOverseas && myTeam.overseasCount >= currentRoom.settings.maxOverseas) {
+    cannotBidReason = `Overseas slots full (${currentRoom.settings.maxOverseas} max)`;
   }
 
-  // Morph into Glowing Emerald Container when leading
-  if (currentRoom.highestBidder && (currentRoom.highestBidder.socketId === socket.id || currentRoom.highestBidder.teamId === myTeam.franchiseId)) {
+  // Configure Bid Button State
+  const isHighestBidder = currentRoom && currentRoom.highestBidder && myTeam && 
+    (currentRoom.highestBidder.socketId === (socket ? socket.id : null) || currentRoom.highestBidder.teamId === myTeam.franchiseId);
+
+  if (isHighestBidder) {
     btnPlaceBid.disabled = true;
     btnPlaceBid.classList.remove('from-amber-500', 'to-amber-400');
     btnPlaceBid.classList.add('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
     bidButtonText.innerHTML = `<i class="fa-solid fa-crown mr-1.5 text-slate-950 animate-bounce"></i> <span>YOU ARE HIGHEST BIDDER</span>`;
-    return;
-  }
-
-  if (myTeam.purse < nextAmount) {
+  } else if (cannotBidReason) {
     btnPlaceBid.disabled = true;
-    bidStatusNotice.textContent = `Insufficient purse! Needed ${formatCurrency(nextAmount)}`;
+    bidStatusNotice.textContent = cannotBidReason;
     bidStatusNotice.classList.remove('hidden');
-    return;
-  }
-
-  if (myTeam.squadCount >= currentRoom.settings.maxSquadSize) {
-    btnPlaceBid.disabled = true;
-    bidStatusNotice.textContent = `Squad full (${currentRoom.settings.maxSquadSize} players)`;
-    bidStatusNotice.classList.remove('hidden');
-    return;
-  }
-
-  if (currentRoom.currentPlayer.isOverseas && myTeam.overseasCount >= currentRoom.settings.maxOverseas) {
-    btnPlaceBid.disabled = true;
-    bidStatusNotice.textContent = `Overseas slots full (${currentRoom.settings.maxOverseas} max)`;
-    bidStatusNotice.classList.remove('hidden');
-    return;
-  }
-
-  if (isBidCooldown) {
+  } else if (isBidCooldown) {
     btnPlaceBid.disabled = true;
   }
 
-  // Update Fold button state
-  const isHighestBidder = currentRoom && currentRoom.highestBidder && myTeam && 
-    (currentRoom.highestBidder.socketId === (socket ? socket.id : null) || currentRoom.highestBidder.teamId === myTeam.franchiseId);
-
+  // Update Fold button state (COMPLETELY DECOUPLED FROM BID RESTRICTIONS)
   if (!myTeam || !currentRoom || !currentRoom.currentPlayer) {
     btnFoldPlayer.disabled = true;
   } else if (isHighestBidder) {
@@ -1505,7 +1495,7 @@ function updateDrawerTeams() {
       </div>
       <div class="flex items-center justify-between text-[10px] pt-2 border-t border-white/10 text-slate-400 font-mono">
         <span>Squad: <b class="text-white">${team.squadCount || 0}/${currentRoom.settings.maxSquadSize}</b></span>
-        <span>Overseas: <b class="text-laserCyan">${team.overseasCount || 0}/${currentRoom.settings.maxOverseas}</b></span>
+        <span>Points: <b class="text-amber-400 font-display font-bold">★ ${(team.squad || []).reduce((sum, p) => sum + (p.rating || 75), 0)} pts</b></span>
         <span class="text-amber-400 hover:text-amber-300 font-display font-bold uppercase tracking-wider">Inspect ➔</span>
       </div>
     `;
@@ -1829,28 +1819,32 @@ function renderPodium(standings) {
     podiumTop3Container.innerHTML = cardsHtml.join('');
   }
 
-  // Render Table Ranks 4–10
+  // Render Complete Franchise Leaderboard Table (All Participating Teams)
   if (podiumRestTableBody) {
     podiumRestTableBody.innerHTML = '';
-    if (rest.length === 0) {
+    if (standings.length === 0) {
       podiumRestTableBody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-xs text-slate-500 font-sans">No additional franchises in this room.</td></tr>';
     } else {
-      rest.forEach((team) => {
+      standings.forEach((team) => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-white/5 transition cursor-pointer border-b border-white/5';
+        const rankBadge = team.rank === 1 ? 'text-amber-400 font-black' : team.rank === 2 ? 'text-slate-300 font-black' : team.rank === 3 ? 'text-amber-600 font-black' : 'text-slate-400';
+        tr.className = `hover:bg-white/5 transition cursor-pointer border-b border-white/5 ${team.rank <= 3 ? 'bg-white/[0.02]' : ''}`;
         tr.onclick = () => inspectTeamById(team.teamId);
         tr.innerHTML = `
-          <td class="py-3 px-3 font-mono font-bold text-slate-400 text-left">#${team.rank}</td>
+          <td class="py-3 px-3 font-mono font-bold text-left ${rankBadge}">
+            ${team.rank === 1 ? '🥇 #1' : team.rank === 2 ? '🥈 #2' : team.rank === 3 ? '🥉 #3' : `#${team.rank}`}
+          </td>
           <td class="py-3 px-3 text-left">
             <div class="flex items-center space-x-2">
               <img src="${team.logo}" alt="${team.teamId}" class="w-6 h-6 object-contain" />
               <span class="font-display font-black text-white uppercase">${team.teamName}</span>
+              ${team.rank === 1 ? '<span class="px-1.5 py-0.2 rounded text-[9px] bg-amber-400 text-slate-950 font-black font-display uppercase tracking-widest">CHAMPION</span>' : ''}
             </div>
           </td>
           <td class="py-3 px-3 text-slate-300 font-sans text-left">${team.managerName}</td>
           <td class="py-3 px-3 text-center font-mono text-slate-300">${team.squadCount} players</td>
           <td class="py-3 px-3 text-right font-mono text-victoryEmerald font-bold">${formatCurrency(team.remainingPurse)}</td>
-          <td class="py-3 px-3 text-right font-mono text-amber-400 font-black text-sm">${team.totalPoints} pts</td>
+          <td class="py-3 px-3 text-right font-mono text-amber-400 font-black text-sm">★ ${team.totalPoints} pts</td>
         `;
         podiumRestTableBody.appendChild(tr);
       });
@@ -1893,7 +1887,7 @@ function registerSocketAuctionListeners(s) {
     } else if (roomState.status === 'AUCTION') {
       updateAuctionView(roomState);
     } else if (roomState.status === 'FINISHED') {
-      switchView('FINISHED');
+      renderPodium(roomState.standings);
     }
   });
 

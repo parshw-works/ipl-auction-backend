@@ -336,6 +336,37 @@ function advanceToNextPlayer(room) {
       'announcement'
     );
 
+    // Check for player eligibility across all participating teams
+    const maxSquad = (room.settings && room.settings.maxSquadSize) || 25;
+    const maxOS = (room.settings && room.settings.maxOverseas) || 8;
+    const basePrice = nextPlayer.basePrice;
+
+    // Detect if ANY team is legally able to bid on this player
+    let eligibleBidders = 0;
+    for (const team of room.teams.values()) {
+      const squadLen = team.squad ? team.squad.length : 0;
+      const osCount = team.overseasCount || 0;
+      const canTakeSquad = squadLen < maxSquad;
+      const canTakeOS = !nextPlayer.isOverseas || osCount < maxOS;
+      const canAfford = team.purse >= basePrice;
+
+      if (canTakeSquad && canTakeOS && canAfford) {
+        eligibleBidders += 1;
+      }
+    }
+
+    if (eligibleBidders === 0 && room.teams.size > 0) {
+      addRoomLog(
+        room,
+        `⚠️ Deadlock prevented: No connected franchise can legally bid on ${nextPlayer.name} (Quota/Purse limits). Auto-passing unsold.`,
+        'warning'
+      );
+      // Pass player as unsold immediately and proceed
+      io.to(room.code).emit('player_unsold', { player: nextPlayer });
+      handlePlayerSoldOrUnsold(room);
+      return;
+    }
+
     broadcastRoomUpdate(room.code);
   } else {
     // Trigger A: Player pool exhaustion
