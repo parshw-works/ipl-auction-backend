@@ -1113,11 +1113,13 @@ io.on('connection', (socket) => {
       const team = room.teams.get(socket.id);
       if (!team) return callback && callback({ success: false, error: 'You have not claimed a team franchise.' });
 
-      // Allow folded teams to re-enter if they change their mind or rival raises bid
-      if (room.foldedTeams && room.foldedTeams.has(team.franchiseId)) {
-        room.foldedTeams.delete(team.franchiseId);
+      // Rule 1: If a team folds on a cricket player, that team can't bid on that player again
+      if ((room.foldedTeams && room.foldedTeams.has(team.franchiseId)) || team.isFolded) {
+        return callback && callback({
+          success: false,
+          error: 'You have folded for this player and cannot bid on them again.'
+        });
       }
-      team.isFolded = false;
 
       // Guard: Highest bidder cannot bid against themselves
       if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
@@ -1176,15 +1178,6 @@ io.on('connection', (socket) => {
         color: team.color
       };
 
-      // DYNAMIC RE-ENTRY: Clear all rival folds upon new price raise so all teams can re-enter
-      if (!room.foldedTeams) room.foldedTeams = new Set();
-      room.foldedTeams.clear();
-      if (room.teams) {
-        for (const t of room.teams.values()) {
-          t.isFolded = false;
-        }
-      }
-
       addRoomLog(
         room,
         `💰 ${team.name} (${team.franchiseId}) raised bid to ₹${(nextBidAmount / 10000000).toFixed(2)} Cr!`,
@@ -1198,14 +1191,11 @@ io.on('connection', (socket) => {
       io.to(room.code).emit('bid_accepted', {
         currentBid: room.currentBid,
         highestBidder: room.highestBidder,
-        nextIncrement: calculateIncrement(room.currentBid),
-        foldsReset: true,
-        foldedTeams: [],
-        foldedCount: 0
+        nextIncrement: calculateIncrement(room.currentBid)
       });
 
-      // Broadcast room update so all client UI fold state mirrors server state
-      broadcastRoomUpdate(room.code);
+      // Check consensus hammer resolution after bid
+      evaluateLotConsensus(room);
 
       if (typeof callback === 'function') {
         callback({ success: true, currentBid: room.currentBid });
@@ -1324,37 +1314,6 @@ io.on('connection', (socket) => {
           outcome: consensus.outcome || null
         });
       }
-    } catch (err) {
-      if (typeof callback === 'function') callback({ success: false, error: err.message });
-    }
-  });
-
-  // 9B. Explicit Team UN-FOLD (Re-enter bidding before hammer drops)
-  socket.on('team_unfold', (_, callback) => {
-    try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
-      if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      if (room.status !== 'AUCTION' || !room.currentPlayer) {
-        return callback && callback({ success: false, error: 'No active player on hammer' });
-      }
-
-      const team = room.teams.get(socket.id);
-      if (!team) return callback && callback({ success: false, error: 'Select a team first' });
-
-      if (room.foldedTeams) {
-        room.foldedTeams.delete(team.franchiseId);
-      }
-      team.isFolded = false;
-
-      addRoomLog(
-        room,
-        `🔄 ${team.name} (${team.franchiseId}) re-entered the bidding on ${room.currentPlayer.name}!`,
-        'info'
-      );
-
-      broadcastRoomUpdate(roomCode);
-      if (typeof callback === 'function') callback({ success: true });
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
     }
