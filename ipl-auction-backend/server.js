@@ -1,3 +1,14 @@
+// =========================================================================
+// GLOBAL PROCESS ERROR SHIELDS (FATAL CRASH PREVENTION FOR RENDER)
+// =========================================================================
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL CRASH SHIELD] Uncaught Exception caught:', err.stack || err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL CRASH SHIELD] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -14,6 +25,9 @@ const io = new Server(server, {
     methods: ['GET', 'POST']
   }
 });
+
+// Dedicated Render Keep-Alive / Health Endpoint
+app.get('/health', (req, res) => res.status(200).send('OK'));
 
 // Cache prevention middleware to ensure browser always loads latest code
 app.use((req, res, next) => {
@@ -1448,6 +1462,57 @@ io.on('connection', (socket) => {
     }
 
     broadcastRoomUpdate(roomCode);
+  });
+
+  // 10B. Spectator Cheer & Decibel Engine (Targeted Delivery)
+  socket.on('spectator_cheer', ({ teamId, cheerType, cheerEmoji }) => {
+    try {
+      const roomCode = socket.roomCode;
+      if (!roomCode) return;
+      const room = rooms.get(roomCode);
+      if (!room) return;
+
+      // Update decibel meter for all participants
+      if (!room.decibelMeter) {
+        room.decibelMeter = {};
+        IPL_TEAMS.forEach(t => { room.decibelMeter[t.id] = 50; });
+      }
+
+      const tId = (teamId || '').toUpperCase();
+      if (tId && room.decibelMeter[tId] !== undefined) {
+        room.decibelMeter[tId] = Math.min(100, (room.decibelMeter[tId] || 50) + 6);
+      }
+
+      // Broadcast global decibel update
+      io.to(roomCode).emit('decibel_update', {
+        decibelMeter: room.decibelMeter,
+        cheeredTeam: tId,
+        cheerType: cheerType || 'cheer'
+      });
+
+      // Target delivery: send floating particles only to the cheering spectator and the cheered franchise manager
+      const cheerPayload = {
+        teamId: tId,
+        cheerType: cheerType || 'cheer',
+        cheerEmoji: cheerEmoji || '👏',
+        fromSpectator: socket.id
+      };
+
+      // 1. Emit to cheering spectator
+      socket.emit('team_cheered', cheerPayload);
+
+      // 2. Locate franchise manager socket and emit targeted cheer
+      if (tId) {
+        for (const team of room.teams.values()) {
+          if (team.franchiseId === tId && team.socketId && team.socketId !== socket.id) {
+            io.to(team.socketId).emit('team_cheered', cheerPayload);
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[CHEER ERROR]', err.message);
+    }
   });
 
   // 11. Leave Match (Explicit Cleanup)
