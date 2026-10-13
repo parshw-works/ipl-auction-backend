@@ -609,6 +609,24 @@ const ACTIVE_SESSIONS_KEY = 'ipl_active_sessions';
 let currentRole = 'manager'; // 'manager' | 'spectator'
 let currentAllegiance = null;
 
+// Persistent Client Identity (playerId Engine)
+function getOrCreatePlayerId() {
+  try {
+    let id = localStorage.getItem('ipl_device_player_id');
+    if (!id) {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        id = 'usr_' + crypto.randomUUID().replace(/-/g, '').substring(0, 12);
+      } else {
+        id = 'usr_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+      }
+      localStorage.setItem('ipl_device_player_id', id);
+    }
+    return id;
+  } catch (e) {
+    return 'usr_' + Math.random().toString(36).substring(2, 10);
+  }
+}
+
 function generateClientSessionToken() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -625,12 +643,14 @@ function getActiveSessions() {
   }
 }
 
-function saveActiveSession(roomCode, managerName, teamId, token, role = 'manager') {
+function saveActiveSession(roomCode, managerName, teamId, token, role = 'manager', playerId = null) {
   if (!roomCode) return;
   const sessions = getActiveSessions();
   const c = roomCode.toUpperCase().trim();
+  const pId = playerId || (sessions[c] ? sessions[c].playerId : null) || getOrCreatePlayerId();
   sessions[c] = {
     roomCode: c,
+    playerId: pId,
     managerName: (managerName || 'Manager').trim(),
     teamId: teamId || null,
     sessionToken: token || (sessions[c] ? sessions[c].sessionToken : generateClientSessionToken()),
@@ -642,6 +662,11 @@ function saveActiveSession(roomCode, managerName, teamId, token, role = 'manager
   } catch (e) {}
   renderOngoingMatches();
   return sessions[c];
+}
+
+// Backward compatibility alias for team claiming
+function saveCurrentSession(roomCode, managerName, teamId) {
+  return saveActiveSession(roomCode, managerName, teamId, null, 'manager');
 }
 
 function removeActiveSession(roomCode) {
@@ -752,11 +777,13 @@ function reconnectToRoom(roomCode, session) {
   const s = socket;
   if (!s) return;
 
+  const pId = (session && session.playerId) || getOrCreatePlayerId();
   showToast(`Switching to Arena [${roomCode}]...`, 'info');
 
-  s.emit('reconnect_player', {
+  s.emit('reconnect_session', {
     roomId: roomCode,
     roomCode: roomCode,
+    playerId: pId,
     sessionToken: session.sessionToken,
     teamId: session.teamId,
     franchiseId: session.teamId,
@@ -764,7 +791,7 @@ function reconnectToRoom(roomCode, session) {
   }, (res) => {
     if (res && res.success) {
       currentRoom = res.roomState;
-      isHost = (s.id === currentRoom.hostId);
+      isHost = (currentRoom.hostPlayerId === pId || s.id === currentRoom.hostId);
       currentRole = res.role || (res.team ? 'manager' : 'spectator');
 
       if (res.team) {
@@ -776,7 +803,7 @@ function reconnectToRoom(roomCode, session) {
         currentFranchiseRoster = res.franchiseRoster;
       }
 
-      saveActiveSession(currentRoom.code, session.managerName, myTeam ? myTeam.franchiseId : null, res.sessionToken, currentRole);
+      saveActiveSession(currentRoom.code, session.managerName, myTeam ? myTeam.franchiseId : null, res.sessionToken, currentRole, pId);
 
       if (roomBadge && currentRoomCode) {
         roomBadge.classList.remove('hidden');
@@ -1133,13 +1160,15 @@ btnSubmitCreateRoom.addEventListener('click', () => {
   const maxOverseas = document.getElementById('inputMaxOverseas').value;
 
   const performCreate = () => {
+    const pId = getOrCreatePlayerId();
     socket.emit('create_room', {
       initialPurse,
       retentionsAllowed,
       maxSquadSize,
       minSquadSize,
       maxOverseas,
-      managerName: mName
+      managerName: mName,
+      playerId: pId
     }, (res) => {
       clearTimeout(timeout);
       btnSubmitCreateRoom.disabled = false;
@@ -1150,7 +1179,7 @@ btnSubmitCreateRoom.addEventListener('click', () => {
         isHost = true;
         currentRole = 'manager';
         myTeam = null;
-        saveActiveSession(res.roomCode, mName, null, res.sessionToken, 'manager');
+        saveActiveSession(res.roomCode, mName, null, res.sessionToken, 'manager', res.playerId || pId);
         navigate('lobby', res.roomCode, true);
         setupLobby();
         showToast(`Room created! Code: ${res.roomCode}`, 'success');
@@ -1208,18 +1237,19 @@ btnSubmitJoinRoom.addEventListener('click', () => {
   }, 12000);
 
   const performJoin = () => {
-    socket.emit('join_room', { roomCode, managerName: mName }, (res) => {
+    const pId = getOrCreatePlayerId();
+    socket.emit('join_room', { roomCode, managerName: mName, playerId: pId }, (res) => {
       clearTimeout(timeout);
       btnSubmitJoinRoom.disabled = false;
       btnSubmitJoinRoom.innerHTML = origHTML;
 
       if (res && res.success) {
         currentRoom = res.roomState;
-        isHost = currentRoom.hostId === socket.id;
+        isHost = (currentRoom.hostPlayerId === pId || currentRoom.hostId === socket.id);
         currentRole = res.role || (currentRoom.isStarted ? 'spectator' : 'manager');
         myTeam = null;
 
-        saveActiveSession(roomCode, mName, null, res.sessionToken, currentRole);
+        saveActiveSession(roomCode, mName, null, res.sessionToken, currentRole, pId);
 
         if (currentRole === 'spectator' || currentRoom.isStarted) {
           navigate('auction', roomCode, true);
@@ -1337,12 +1367,13 @@ function renderFranchiseGrid() {
 // Select Franchise & Automatically Pop Open the Retention Window
 function selectFranchise(franchiseId) {
   const managerName = inputManagerName.value.trim() || 'Player ' + Math.floor(Math.random() * 90 + 10);
-  socket.emit('select_team', { franchiseId, managerName }, (res) => {
+  const pId = getOrCreatePlayerId();
+  socket.emit('select_team', { franchiseId, managerName, playerId: pId }, (res) => {
     if (res && res.success) {
       myTeam = res.team;
       currentFranchiseRoster = res.franchiseRoster || [];
       mySelectedRetentions = res.team.retentions || [];
-      saveCurrentSession(currentRoom.code, managerName, myTeam.franchiseId);
+      saveActiveSession(currentRoom.code, managerName, myTeam.franchiseId, null, 'manager', pId);
       updateUserFranchisePill();
       renderFranchiseGrid();
       updateLobbyRetentionBanner();
@@ -1798,11 +1829,18 @@ function updateBidButton() {
   const isHighestBidder = currentRoom && currentRoom.highestBidder && myTeam && 
     (currentRoom.highestBidder.socketId === (socket ? socket.id : null) || currentRoom.highestBidder.teamId === myTeam.franchiseId);
 
+  const foldedList = (currentRoom && currentRoom.foldedTeams) || [];
+  const hasFolded = myTeam && foldedList.includes(myTeam.franchiseId);
+
   if (isHighestBidder) {
     btnPlaceBid.disabled = true;
     btnPlaceBid.classList.remove('from-amber-500', 'to-amber-400');
     btnPlaceBid.classList.add('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
     bidButtonText.innerHTML = `<i class="fa-solid fa-crown mr-1.5 text-slate-950 animate-bounce"></i> <span>YOU ARE HIGHEST BIDDER</span>`;
+  } else if (hasFolded) {
+    btnPlaceBid.disabled = true;
+    bidStatusNotice.textContent = 'You have folded for this player and cannot bid again';
+    bidStatusNotice.classList.remove('hidden');
   } else if (cannotBidReason) {
     btnPlaceBid.disabled = true;
     bidStatusNotice.textContent = cannotBidReason;
@@ -1938,9 +1976,31 @@ function updateDrawerTeams() {
       <div class="flex items-center justify-between text-[10px] pt-2 border-t border-white/10 text-slate-400 font-mono">
         <span>Squad: <b class="text-white">${team.squadCount || 0}/${currentRoom.settings.maxSquadSize}</b></span>
         <span>Points: <b class="text-amber-400 font-display font-bold">★ ${(team.squad || []).reduce((sum, p) => sum + (p.rating || 75), 0)} pts</b></span>
-        <span class="text-amber-400 hover:text-amber-300 font-display font-bold uppercase tracking-wider">Inspect ➔</span>
+        <div class="flex items-center space-x-1.5">
+          ${isHost && !isMe ? `<button class="btn-kick-member px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 hover:bg-rose-500/40 border border-rose-500/40 text-[9px] font-display font-black uppercase tracking-wider" data-team="${team.franchiseId}" data-socket="${team.socketId}" data-player="${team.ownerPlayerId || ''}">KICK</button>` : ''}
+          <span class="text-amber-400 hover:text-amber-300 font-display font-bold uppercase tracking-wider">Inspect ➔</span>
+        </div>
       </div>
     `;
+
+    // Attach kick listener if present
+    const kickBtn = card.querySelector('.btn-kick-member');
+    if (kickBtn) {
+      kickBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm(`Are you sure you want to kick ${team.managerName} (${team.name}) from the match?`)) return;
+        socket.emit('kick_participant', {
+          targetPlayerId: kickBtn.dataset.player || null,
+          targetSocketId: kickBtn.dataset.socket || null
+        }, (res) => {
+          if (res && res.success) {
+            showToast(`Kicked ${team.managerName}!`, 'info');
+          } else {
+            showToast(res ? res.error : 'Failed to kick member', 'warning');
+          }
+        });
+      });
+    }
 
     card.addEventListener('click', () => openSquadModal(team));
     drawerTeamsList.appendChild(card);
@@ -2111,6 +2171,7 @@ function renderMobileSheetStandings() {
             <div class="font-mono font-bold text-amber-400 text-xs">★ ${totalPoints} pts</div>
             <div class="font-mono text-[10px] text-victoryEmerald font-semibold">${formatCurrency(purse)}</div>
           </div>
+          ${isHost && !isMe ? `<button class="btn-kick-member-mobile px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px] font-display font-black uppercase tracking-wider" data-team="${teamId}" data-socket="${team.socketId || ''}" data-player="${team.ownerPlayerId || ''}">KICK</button>` : ''}
           <i class="fa-solid fa-chevron-down text-slate-500 text-xs accordion-arrow transition-transform"></i>
         </div>
       </div>
@@ -2132,7 +2193,8 @@ function renderMobileSheetStandings() {
     const headerRow = card.querySelector('.mobile-team-row');
     const accordion = card.querySelector('.mobile-squad-accordion');
     const arrow = card.querySelector('.accordion-arrow');
-    headerRow.addEventListener('click', () => {
+    headerRow.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-kick-member-mobile')) return;
       const isHidden = accordion.classList.contains('hidden');
       if (isHidden) {
         accordion.classList.remove('hidden');
@@ -2142,6 +2204,24 @@ function renderMobileSheetStandings() {
         arrow.classList.remove('rotate-180');
       }
     });
+
+    const mobileKickBtn = card.querySelector('.btn-kick-member-mobile');
+    if (mobileKickBtn) {
+      mobileKickBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm(`Are you sure you want to kick ${team.managerName || teamName} from the match?`)) return;
+        socket.emit('kick_participant', {
+          targetPlayerId: mobileKickBtn.dataset.player || null,
+          targetSocketId: mobileKickBtn.dataset.socket || null
+        }, (res) => {
+          if (res && res.success) {
+            showToast(`Kicked member!`, 'info');
+          } else {
+            showToast(res ? res.error : 'Failed to kick member', 'warning');
+          }
+        });
+      });
+    }
 
     mobileSheetContent.appendChild(card);
   });
@@ -2921,6 +3001,29 @@ function registerSocketAuctionListeners(s) {
     const val = (decibelMeter && decibelMeter[currentTeam]) || 50;
     if (decEl) decEl.style.width = `${Math.min(100, Math.max(10, val))}%`;
     if (decVal) decVal.textContent = `${val} dB`;
+  });
+
+  // Host Moderation: Kicked from Room
+  s.on('kicked_from_room', ({ roomCode, reason }) => {
+    playBeep(220, 'sawtooth', 0.4);
+    showToast(reason || 'You have been kicked from the match by the host.', 'error');
+    if (roomCode) removeActiveSession(roomCode);
+    currentRoom = null;
+    myTeam = null;
+    navigate('home', null, true);
+  });
+
+  // Session Invalidated / Expired
+  s.on('session_invalid', ({ message }) => {
+    showToast(message || 'Your previous session in this room is no longer valid.', 'warning');
+    if (currentRoom && currentRoom.code) {
+      removeActiveSession(currentRoom.code);
+    }
+  });
+
+  // Unique Name Conflict Error
+  s.on('join_error', ({ message }) => {
+    showToast(message || 'Name already taken in this room.', 'error');
   });
 }
 

@@ -208,10 +208,19 @@ function checkCapacityAndFinanceEndCondition(room) {
 
 function sanitizeRoomState(room) {
   const foldedList = Array.from(room.foldedTeams || []);
-  const requiredFolds = room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1);
+  const membersList = room.members ? Array.from(room.members.values()).map(m => ({
+    playerId: m.playerId,
+    playerName: m.playerName,
+    teamId: m.teamId,
+    role: m.role,
+    isOnline: !!m.isOnline,
+    isHost: m.playerId === room.hostPlayerId
+  })) : [];
   return {
     code: room.code,
     hostId: room.hostId,
+    hostPlayerId: room.hostPlayerId || null,
+    members: membersList,
     status: room.status,
     isStarted: !!room.isStarted,
     isConcluding: !!room.isConcluding,
@@ -256,29 +265,130 @@ function addRoomLog(room, message, type = 'info', meta = null) {
   io.to(room.code).emit('new_log', entry);
 }
 
-function clearRoomTimer(room) {
-  if (room.timerInterval) {
-    clearInterval(room.timerInterval);
-    room.timerInterval = null;
+// Singleton RoomTimerManager: centralizes and hardens timer lifecycle against timer leaks
+class RoomTimerManager {
+  static startCountdown(room, durationSeconds, onTick, onComplete) {
+    this.clear(room);
+    room.timerRemaining = durationSeconds;
+    room.timerSeconds = durationSeconds;
+    room.timerActive = true;
+    room.isTimerRunning = true;
+    if (onTick) onTick(room.timerSeconds);
+
+    room.timerInterval = setInterval(() => {
+      room.timerRemaining -= 1;
+      room.timerSeconds = room.timerRemaining;
+      if (onTick) onTick(room.timerRemaining);
+
+      if (room.timerRemaining <= 0) {
+        RoomTimerManager.clear(room);
+        if (onComplete) onComplete();
+      }
+    }, 1000);
   }
-  room.isTimerRunning = false;
+
+  static clear(room) {
+    if (room && room.timerInterval) {
+      clearInterval(room.timerInterval);
+      room.timerInterval = null;
+    }
+    if (room) {
+      room.timerActive = false;
+      room.isTimerRunning = false;
+    }
+  }
+}
+
+// Backward-compatibility wrapper
+function clearRoomTimer(room) {
+  RoomTimerManager.clear(room);
 }
 
 function startCountdown(room) {
-  clearRoomTimer(room);
-  room.isTimerRunning = true;
-  room.timerSeconds = 15;
-  io.to(room.code).emit('timer_tick', { seconds: room.timerSeconds, isRunning: true });
-
-  room.timerInterval = setInterval(() => {
-    room.timerSeconds -= 1;
-    io.to(room.code).emit('timer_tick', { seconds: room.timerSeconds, isRunning: true });
-
-    if (room.timerSeconds <= 0) {
-      clearRoomTimer(room);
+  RoomTimerManager.startCountdown(
+    room,
+    15,
+    (seconds) => {
+      io.to(room.code).emit('timer_tick', { seconds, isRunning: true });
+    },
+    () => {
       handlePlayerSoldOrUnsold(room);
     }
-  }, 1000);
+  );
+}
+
+// Evaluate consensus fold status on bid or fold action
+function evaluateLotConsensus(room) {
+  if (!room || room.status !== 'AUCTION' || !room.currentPlayer) return { handled: false };
+  if (!room.foldedTeams) room.foldedTeams = new Set();
+
+  const totalConnectedTeams = room.teams.size;
+  if (totalConnectedTeams <= 0) return { handled: false };
+
+  const hasBid = !!(room.highestBidder || room.openingBidPlaced);
+
+  if (!hasBid) {
+    // Zero-Bid Consensus Resolution
+    const remainingEligible = totalConnectedTeams - room.foldedTeams.size;
+
+    if (remainingEligible <= 0) {
+      // Case A: All active teams folded -> Instant UNSOLD!
+      RoomTimerManager.clear(room);
+      addRoomLog(
+        room,
+        `⚡ All franchises passed on ${room.currentPlayer.name}. Instant unsold!`,
+        'announcement'
+      );
+      io.to(room.code).emit('player_unsold', {
+        player: room.currentPlayer,
+        reason: 'All franchises passed'
+      });
+
+      setTimeout(() => {
+        handlePlayerSoldOrUnsold(room);
+      }, 2000);
+
+      return { handled: true, outcome: 'unsold' };
+    } else if (remainingEligible === 1) {
+      // Case B: Only 1 team remains eligible with 0 bids placed -> Sudden Death 5s Clock
+      if (room.timerSeconds > 5) {
+        room.timerSeconds = 5;
+        room.timerRemaining = 5;
+        addRoomLog(
+          room,
+          `⚡ Sudden Death! Only 1 franchise remaining to bid on ${room.currentPlayer.name} (5s clock).`,
+          'warning'
+        );
+        io.to(room.code).emit('timer_shortened', {
+          reason: 'Final chance for remaining franchise to place opening bid!',
+          seconds: 5
+        });
+        io.to(room.code).emit('timer_tick', { seconds: 5, isRunning: true });
+        broadcastRoomUpdate(room.code);
+      }
+      return { handled: true, outcome: 'shortened' };
+    }
+  } else {
+    // Active-Bid Consensus Resolution (Instant SOLD)
+    const requiredFolds = room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1);
+
+    if (room.foldedTeams.size >= requiredFolds) {
+      RoomTimerManager.clear(room);
+      addRoomLog(
+        room,
+        `⚡ Consensus reached! All rival franchises folded on ${room.currentPlayer.name}. Instant hammer!`,
+        'announcement'
+      );
+      io.to(room.code).emit('all_teams_folded', {
+        player: room.currentPlayer,
+        highestBidder: room.highestBidder
+      });
+      handlePlayerSoldOrUnsold(room);
+      return { handled: true, outcome: 'sold' };
+    }
+  }
+
+  return { handled: false };
 }
 
 function handlePlayerSoldOrUnsold(room) {
@@ -381,6 +491,7 @@ function advanceToNextPlayer(room) {
         'warning'
       );
       // Pass player as unsold immediately and proceed
+      RoomTimerManager.clear(room);
       io.to(room.code).emit('player_unsold', { player: nextPlayer });
       handlePlayerSoldOrUnsold(room);
       return;
@@ -404,10 +515,13 @@ io.on('connection', (socket) => {
         minSquadSize = 15,
         maxOverseas = 8, 
         retentionsAllowed = 2,
-        managerName = 'Host'
+        managerName = 'Host',
+        playerId
       } = data || {};
       const roomCode = generateRoomCode();
       const token = data.sessionToken || generateSessionToken();
+      const pId = playerId || ('usr_' + crypto.randomBytes(6).toString('hex'));
+      const mName = (managerName || 'Host').trim();
 
       // Clone and shuffle players pool for randomized presentation
       const playerPool = shuffleArray(JSON.parse(JSON.stringify(playersDataset)));
@@ -418,6 +532,7 @@ io.on('connection', (socket) => {
       const newRoom = {
         code: roomCode,
         hostId: socket.id,
+        hostPlayerId: pId,
         status: 'LOBBY',
         isStarted: false,
         isConcluding: false,
@@ -428,6 +543,7 @@ io.on('connection', (socket) => {
           maxOverseas: Number(maxOverseas) || 8,
           retentionsAllowed: Math.min(Math.max(Number(retentionsAllowed) || 0, 0), 4)
         },
+        members: new Map(),
         teams: new Map(),
         spectators: new Map(),
         decibelMeter: decibelMap,
@@ -446,14 +562,27 @@ io.on('connection', (socket) => {
         standings: null
       };
 
+      // Register host member
+      newRoom.members.set(pId, {
+        playerId: pId,
+        playerName: mName,
+        teamId: null,
+        role: 'manager',
+        socketId: socket.id,
+        isOnline: true,
+        disconnectTimeout: null
+      });
+
       rooms.set(roomCode, newRoom);
       socket.join(roomCode);
       socket.roomCode = roomCode;
+      socket.playerId = pId;
 
       sessionRegistry.set(token, {
         roomId: roomCode,
+        playerId: pId,
         teamId: null,
-        managerName: (managerName || 'Host').trim(),
+        managerName: mName,
         socketId: socket.id,
         role: 'manager'
       });
@@ -461,15 +590,15 @@ io.on('connection', (socket) => {
       addRoomLog(newRoom, `Room created [${roomCode}]. Host joined.`);
 
       if (typeof callback === 'function') {
-        callback({ success: true, roomCode, sessionToken: token, roomState: sanitizeRoomState(newRoom) });
+        callback({ success: true, roomCode, playerId: pId, sessionToken: token, roomState: sanitizeRoomState(newRoom) });
       }
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
     }
   });
 
-  // 2. Join Room
-  socket.on('join_room', ({ roomCode, managerName, sessionToken }, callback) => {
+  // 2. Join Room (Brand New Joiners Only)
+  socket.on('join_room', ({ roomCode, managerName, sessionToken, playerId }, callback) => {
     try {
       if (!roomCode) return callback && callback({ success: false, error: 'Room code is required' });
       const code = roomCode.toUpperCase().trim();
@@ -484,68 +613,112 @@ io.on('connection', (socket) => {
 
       const token = sessionToken || generateSessionToken();
       const mName = (managerName || 'Player').trim();
+      const pId = playerId || ('usr_' + crypto.randomBytes(6).toString('hex'));
 
-      // Check manager name duplication inside active room
-      const existingNames = Array.from(room.teams.values()).map(t => t.managerName.toLowerCase());
-      if (existingNames.includes(mName.toLowerCase())) {
-        const registered = sessionRegistry.get(token);
-        if (!registered || registered.roomId !== code) {
-          return callback && callback({ success: false, error: `Manager handle "${mName}" is already taken in this room. Please choose another.` });
-        }
+      // Check manager name duplication inside active room (among different players)
+      if (!room.members) room.members = new Map();
+      const nameConflict = Array.from(room.members.values()).some(
+        m => m.playerName.trim().toLowerCase() === mName.toLowerCase() && m.playerId !== pId
+      );
+      if (nameConflict) {
+        socket.emit('join_error', { message: 'Name already taken in this room.' });
+        return callback && callback({ success: false, error: 'Name already taken in this room.' });
       }
 
-      // 10-Franchise Cap & Automated Spectator Ingestion
+      // If returning member already registered, cancel disconnect grace timer and update socket
+      const existingMember = room.members.get(pId);
+      if (existingMember) {
+        if (existingMember.disconnectTimeout) {
+          clearTimeout(existingMember.disconnectTimeout);
+          existingMember.disconnectTimeout = null;
+        }
+        existingMember.socketId = socket.id;
+        existingMember.isOnline = true;
+        existingMember.playerName = mName;
+        socket.join(code);
+        socket.roomCode = code;
+        socket.playerId = pId;
+
+        // If member had claimed a team, update team socketId
+        if (existingMember.teamId && room.teams.has(existingMember.teamId)) {
+          const t = room.teams.get(existingMember.teamId);
+          t.socketId = socket.id;
+          t.managerName = mName;
+          if (room.highestBidder && (room.highestBidder.teamId === t.franchiseId || room.highestBidder.playerId === pId)) {
+            room.highestBidder.socketId = socket.id;
+          }
+        }
+
+        sessionRegistry.set(token, {
+          roomId: code,
+          playerId: pId,
+          teamId: existingMember.teamId || null,
+          managerName: mName,
+          socketId: socket.id,
+          role: existingMember.role
+        });
+
+        if (typeof callback === 'function') {
+          callback({
+            success: true,
+            role: existingMember.role,
+            playerId: pId,
+            sessionToken: token,
+            roomState: sanitizeRoomState(room)
+          });
+        }
+        broadcastRoomUpdate(code);
+        return;
+      }
+
+      // Brand new joiner
       const isLobbyFull = room.teams.size >= 10;
       const isAutoSpectator = room.isStarted || isLobbyFull;
+      const role = isAutoSpectator ? 'spectator' : 'manager';
+
+      room.members.set(pId, {
+        playerId: pId,
+        playerName: mName,
+        teamId: null,
+        role,
+        socketId: socket.id,
+        isOnline: true,
+        disconnectTimeout: null
+      });
+
+      socket.join(code);
+      socket.roomCode = code;
+      socket.playerId = pId;
 
       if (isAutoSpectator) {
         if (!room.spectators) room.spectators = new Map();
         room.spectators.set(socket.id, {
           socketId: socket.id,
+          playerId: pId,
           managerName: mName,
           supportedTeam: null,
           sessionToken: token
         });
-
-        socket.join(code);
-        socket.roomCode = code;
-
-        sessionRegistry.set(token, {
-          roomId: code,
-          teamId: null,
-          managerName: mName,
-          socketId: socket.id,
-          role: 'spectator'
-        });
-
         addRoomLog(room, `👁️ ${mName} joined as Spectator.`);
-
-        if (typeof callback === 'function') {
-          callback({
-            success: true,
-            role: 'spectator',
-            sessionToken: token,
-            roomState: sanitizeRoomState(room)
-          });
-        }
-
-        broadcastRoomUpdate(code);
-        return;
       }
-
-      socket.join(code);
-      socket.roomCode = code;
 
       sessionRegistry.set(token, {
         roomId: code,
+        playerId: pId,
         teamId: null,
         managerName: mName,
         socketId: socket.id,
-        role: 'manager'
+        role
       });
 
       if (typeof callback === 'function') {
-        callback({ success: true, role: 'manager', sessionToken: token, roomState: sanitizeRoomState(room) });
+        callback({
+          success: true,
+          role,
+          playerId: pId,
+          sessionToken: token,
+          roomState: sanitizeRoomState(room)
+        });
       }
 
       broadcastRoomUpdate(code);
@@ -554,14 +727,17 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 2B. Reconnect Player / Resume Session
-  const handleReconnect = ({ roomId, roomCode, sessionToken, teamId, franchiseId, managerName }, callback) => {
+  // 2B. Reconnect Player / Resume Session (Pipeline 2: Never demote returning managers)
+  const handleReconnect = ({ roomId, roomCode, sessionToken, playerId, teamId, franchiseId, managerName }, callback) => {
     try {
       const code = (roomId || roomCode || '').toUpperCase().trim();
       if (!code) return callback && callback({ success: false, error: 'Room code is required' });
       const room = rooms.get(code);
 
-      if (!room) return callback && callback({ success: false, error: 'War Room session expired or not found.' });
+      if (!room) {
+        socket.emit('session_invalid', { message: 'Match room expired or not found.' });
+        return callback && callback({ success: false, error: 'War Room session expired or not found.' });
+      }
 
       if (room.cleanupTimer) {
         clearTimeout(room.cleanupTimer);
@@ -571,26 +747,72 @@ io.on('connection', (socket) => {
       socket.join(code);
       socket.roomCode = code;
 
-      // Re-assign host if old host is disconnected
-      const activeSockets = Array.from(io.sockets.adapter.rooms.get(code) || []);
-      if (!room.hostId || !activeSockets.includes(room.hostId)) {
-        room.hostId = socket.id;
+      const pId = playerId;
+      if (!room.members) room.members = new Map();
+      const member = pId ? room.members.get(pId) : null;
+
+      if (!member) {
+        // Fallback: search by teamId or token if playerId not found
+        const fId = franchiseId || teamId;
+        let matchedTeam = null;
+        if (fId) {
+          for (const team of room.teams.values()) {
+            if (team.franchiseId === fId) {
+              matchedTeam = team;
+              break;
+            }
+          }
+        }
+
+        if (!matchedTeam) {
+          socket.emit('session_invalid', { message: 'Session not recognized in this room.' });
+          return callback && callback({ success: false, error: 'Session not recognized in this room.' });
+        }
       }
 
-      const fId = franchiseId || teamId;
+      // Reconnection Match Found!
+      if (member) {
+        if (member.disconnectTimeout) {
+          clearTimeout(member.disconnectTimeout);
+          member.disconnectTimeout = null;
+        }
+        member.socketId = socket.id;
+        member.isOnline = true;
+        if (managerName) member.playerName = managerName.trim();
+      }
+      socket.playerId = member ? member.playerId : pId;
+
+      // Re-assign host if old host is disconnected
+      if (!room.hostPlayerId && socket.playerId) {
+        room.hostPlayerId = socket.playerId;
+      }
+      if (room.hostPlayerId === socket.playerId) {
+        room.hostId = socket.id;
+      } else {
+        const activeSockets = Array.from(io.sockets.adapter.rooms.get(code) || []);
+        if (!room.hostId || !activeSockets.includes(room.hostId)) {
+          room.hostId = socket.id;
+          if (socket.playerId) room.hostPlayerId = socket.playerId;
+        }
+      }
+
+      const fId = (member && member.teamId) || franchiseId || teamId;
       let reclaimedTeam = null;
 
       if (fId) {
-        for (const [oldSId, team] of room.teams.entries()) {
-          if (team.franchiseId === fId) {
-            room.teams.delete(oldSId);
+        for (const team of room.teams.values()) {
+          if (team.franchiseId === fId || (member && team.ownerPlayerId === member.playerId)) {
             team.socketId = socket.id;
-            if (managerName) team.managerName = managerName.trim();
-            team.isHost = (socket.id === room.hostId);
-            room.teams.set(socket.id, team);
+            if (member) {
+              team.ownerPlayerId = member.playerId;
+              team.managerName = member.playerName;
+            } else if (managerName) {
+              team.managerName = managerName.trim();
+            }
+            team.isHost = (room.hostPlayerId === (member ? member.playerId : null) || socket.id === room.hostId);
             reclaimedTeam = team;
 
-            if (room.highestBidder && (room.highestBidder.teamId === fId || room.highestBidder.socketId === oldSId)) {
+            if (room.highestBidder && (room.highestBidder.teamId === fId || (member && room.highestBidder.playerId === member.playerId))) {
               room.highestBidder.socketId = socket.id;
             }
             break;
@@ -599,40 +821,40 @@ io.on('connection', (socket) => {
       }
 
       const token = sessionToken || generateSessionToken();
-      let userRole = reclaimedTeam ? 'manager' : 'spectator';
-
-      if (!reclaimedTeam && (room.isStarted || room.teams.size >= 10)) {
-        if (!room.spectators) room.spectators = new Map();
-        room.spectators.set(socket.id, {
-          socketId: socket.id,
-          managerName: managerName || 'Spectator',
-          supportedTeam: null,
-          sessionToken: token
-        });
-        userRole = 'spectator';
-      }
+      // CRITICAL GUARD: Never demote a manager to spectator
+      const userRole = (member && member.role === 'manager') || reclaimedTeam ? 'manager' : 'spectator';
+      if (member) member.role = userRole;
 
       sessionRegistry.set(token, {
         roomId: code,
+        playerId: member ? member.playerId : (pId || null),
         teamId: reclaimedTeam ? reclaimedTeam.franchiseId : null,
-        managerName: reclaimedTeam ? reclaimedTeam.managerName : (managerName || 'Manager'),
+        managerName: reclaimedTeam ? reclaimedTeam.managerName : ((member && member.playerName) || managerName || 'Manager'),
         socketId: socket.id,
         role: userRole
       });
 
       addRoomLog(
         room,
-        `⚡ ${reclaimedTeam ? reclaimedTeam.managerName : (managerName || 'Player')} reconnected & restored session.`,
+        `⚡ ${reclaimedTeam ? reclaimedTeam.managerName : ((member && member.playerName) || managerName || 'Player')} reconnected & restored session.`,
         'info'
       );
 
       const franchiseRoster = reclaimedTeam ? playersDataset.filter(p => p.originalTeam === reclaimedTeam.franchiseId) : [];
+
+      socket.emit('session_restored', {
+        role: userRole,
+        playerId: member ? member.playerId : pId,
+        team: reclaimedTeam,
+        roomState: sanitizeRoomState(room)
+      });
 
       if (typeof callback === 'function') {
         callback({
           success: true,
           reclaimed: !!reclaimedTeam,
           role: userRole,
+          playerId: member ? member.playerId : pId,
           sessionToken: token,
           roomState: sanitizeRoomState(room),
           team: reclaimedTeam,
@@ -649,8 +871,8 @@ io.on('connection', (socket) => {
   socket.on('reconnect_player', handleReconnect);
   socket.on('reconnect_session', handleReconnect);
 
-  // 3. Select Team Franchise
-  socket.on('select_team', ({ franchiseId, managerName, sessionToken }, callback) => {
+  // 3. Select Team Franchise (Keyed by socket or franchise, persistent ownerPlayerId)
+  socket.on('select_team', ({ franchiseId, managerName, sessionToken, playerId }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
@@ -669,17 +891,22 @@ io.on('connection', (socket) => {
       const franchise = IPL_TEAMS.find(t => t.id === franchiseId);
       if (!franchise) return callback && callback({ success: false, error: 'Invalid franchise selected.' });
 
+      const pId = playerId || socket.playerId || ('usr_' + socket.id);
+
       // Verify franchise availability
       for (const [sId, existingTeam] of room.teams.entries()) {
-        if (existingTeam.franchiseId === franchiseId && sId !== socket.id) {
+        if (existingTeam.franchiseId === franchiseId && sId !== socket.id && existingTeam.ownerPlayerId !== pId) {
           return callback && callback({ success: false, error: `${franchise.name} has already been claimed by another player!` });
         }
       }
 
       const existing = room.teams.get(socket.id);
+      const mName = (managerName || (existing ? existing.managerName : 'Manager')).trim();
+
       const teamData = {
         socketId: socket.id,
-        managerName: (managerName || 'Manager').trim(),
+        ownerPlayerId: pId,
+        managerName: mName,
         franchiseId: franchise.id,
         name: franchise.name,
         color: franchise.color,
@@ -690,14 +917,28 @@ io.on('connection', (socket) => {
         squad: existing ? existing.squad : [],
         squadCount: existing ? existing.squad.length : 0,
         overseasCount: existing ? existing.overseasCount : 0,
-        isHost: socket.id === room.hostId,
-        retentions: existing ? existing.retentions : []
+        isHost: (room.hostPlayerId === pId || socket.id === room.hostId),
+        retentions: existing ? existing.retentions : [],
+        isFolded: false
       };
 
       room.teams.set(socket.id, teamData);
 
+      // Register member assignment
+      if (!room.members) room.members = new Map();
+      room.members.set(pId, {
+        playerId: pId,
+        playerName: mName,
+        teamId: franchise.id,
+        role: 'manager',
+        socketId: socket.id,
+        isOnline: true,
+        disconnectTimeout: null
+      });
+
       if (sessionToken && sessionRegistry.has(sessionToken)) {
         sessionRegistry.get(sessionToken).teamId = franchise.id;
+        sessionRegistry.get(sessionToken).playerId = pId;
       }
 
       addRoomLog(room, `${teamData.managerName} took control of ${teamData.name} (${teamData.franchiseId})`);
@@ -778,7 +1019,8 @@ io.on('connection', (socket) => {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      if (socket.id !== room.hostId) return callback && callback({ success: false, error: 'Host only' });
+      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
 
       if (room.teams.size === 0) {
         return callback && callback({ success: false, error: 'At least 1 team must join to start!' });
@@ -818,7 +1060,8 @@ io.on('connection', (socket) => {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      if (socket.id !== room.hostId) return callback && callback({ success: false, error: 'Host only' });
+      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
       if (room.status !== 'AUCTION') return callback && callback({ success: false, error: 'Auction is not currently in progress' });
 
       if (!canConcludeEarly(room)) {
@@ -836,7 +1079,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 6. Place Bid (Synchronous Atomic Handling)
+  // 6. Place Bid (Synchronous Atomic Handling + Fold Lock Guard)
   socket.on('place_bid', ({ expectedCurrentBid }, callback) => {
     try {
       const roomCode = socket.roomCode;
@@ -850,8 +1093,16 @@ io.on('connection', (socket) => {
       const team = room.teams.get(socket.id);
       if (!team) return callback && callback({ success: false, error: 'You have not claimed a team franchise.' });
 
+      // Fold Lock Guard: Block folded teams from placing bids on current lot
+      if ((room.foldedTeams && room.foldedTeams.has(team.franchiseId)) || team.isFolded) {
+        return callback && callback({
+          success: false,
+          error: 'You have folded for this player and cannot bid again.'
+        });
+      }
+
       // Guard: Highest bidder cannot bid against themselves
-      if (room.highestBidder && room.highestBidder.socketId === socket.id) {
+      if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
         return callback && callback({ success: false, error: 'You already hold the highest bid!' });
       }
 
@@ -899,15 +1150,13 @@ io.on('connection', (socket) => {
       room.currentBid = nextBidAmount;
       room.highestBidder = {
         socketId: socket.id,
+        playerId: team.ownerPlayerId || socket.playerId || null,
         teamId: team.franchiseId,
         teamName: team.name,
         managerName: team.managerName,
         logo: team.logo,
         color: team.color
       };
-
-      // Reset consensus folds for new price point
-      room.foldedTeams = new Set();
 
       addRoomLog(
         room,
@@ -925,6 +1174,9 @@ io.on('connection', (socket) => {
         nextIncrement: calculateIncrement(room.currentBid)
       });
 
+      // Check consensus hammer resolution after bid
+      evaluateLotConsensus(room);
+
       if (typeof callback === 'function') {
         callback({ success: true, currentBid: room.currentBid });
       }
@@ -939,12 +1191,13 @@ io.on('connection', (socket) => {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      if (socket.id !== room.hostId) return callback && callback({ success: false, error: 'Host only' });
+      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
       if (room.status !== 'AUCTION' || !room.currentPlayer) {
         return callback && callback({ success: false, error: 'No player on hammer to skip' });
       }
 
-      clearRoomTimer(room);
+      RoomTimerManager.clear(room);
 
       // Save to skip history stack for undo
       room.skipHistory.push({
@@ -969,12 +1222,13 @@ io.on('connection', (socket) => {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      if (socket.id !== room.hostId) return callback && callback({ success: false, error: 'Host only' });
+      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
       if (room.skipHistory.length === 0) {
         return callback && callback({ success: false, error: 'No skipped player to undo' });
       }
 
-      clearRoomTimer(room);
+      RoomTimerManager.clear(room);
 
       const lastSkipped = room.skipHistory.pop();
       room.playerPool.pop(); // Remove the duplicated entry pushed to the end
@@ -985,6 +1239,7 @@ io.on('connection', (socket) => {
       room.timerSeconds = 15;
       room.isTimerRunning = false;
       room.foldedTeams = new Set();
+      startCountdown(room);
 
       addRoomLog(room, `⏪ Host restored skipped star: ${lastSkipped.player.name}!`, 'announcement');
       broadcastRoomUpdate(roomCode);
@@ -995,7 +1250,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 9. Team FOLD / Pass (Consensus skip timer)
+  // 9. Team FOLD / Pass (Persistent per-lot fold + evaluateLotConsensus)
   socket.on('team_fold', (_, callback) => {
     try {
       const roomCode = socket.roomCode;
@@ -1014,10 +1269,8 @@ io.on('connection', (socket) => {
       }
 
       if (!room.foldedTeams) room.foldedTeams = new Set();
-      if (room.highestBidder) {
-        room.foldedTeams.delete(room.highestBidder.teamId);
-      }
       room.foldedTeams.add(team.franchiseId);
+      team.isFolded = true;
 
       addRoomLog(
         room,
@@ -1025,151 +1278,139 @@ io.on('connection', (socket) => {
         'info'
       );
 
-      const hasBid = !!(room.highestBidder || room.openingBidPlaced);
-
-      if (!hasBid) {
-        // Zero-Bid Consensus Resolution (Instant UNSOLD or Sudden Death)
-        const totalConnectedTeams = room.teams.size;
-        const remainingEligible = totalConnectedTeams - room.foldedTeams.size;
-
-        if (remainingEligible <= 0) {
-          // Case A: All active teams have folded -> Instant UNSOLD!
-          clearRoomTimer(room);
-          addRoomLog(
-            room,
-            `⚡ All franchises passed on ${room.currentPlayer.name}. Instant unsold!`,
-            'announcement'
-          );
-          io.to(room.code).emit('player_unsold', { 
-            player: room.currentPlayer, 
-            reason: "All franchises passed" 
-          });
-
-          // Transition to next player after 2-second cooldown
-          setTimeout(() => {
-            handlePlayerSoldOrUnsold(room);
-          }, 2000);
-
-          if (typeof callback === 'function') callback({ success: true, folded: true, allFolded: true, unsold: true });
-          return;
-        } else if (remainingEligible === 1) {
-          // Case B: Only 1 team remains eligible with 0 bids placed -> Sudden Death 5s Clock
-          room.timerSeconds = Math.min(room.timerSeconds, 5);
-          addRoomLog(
-            room,
-            `⚡ Sudden Death! Only 1 franchise remaining to bid on ${room.currentPlayer.name} (5s clock).`,
-            'warning'
-          );
-          io.to(room.code).emit('timer_shortened', {
-            reason: "Final chance for remaining franchise to place opening bid!",
-            seconds: room.timerSeconds
-          });
-          io.to(room.code).emit('timer_tick', { seconds: room.timerSeconds, isRunning: true });
-          broadcastRoomUpdate(roomCode);
-          if (typeof callback === 'function') callback({ success: true, folded: true, shortened: true });
-          return;
-        }
-      } else {
-        // Active-Bid Consensus Resolution (Instant SOLD)
-        const requiredFolds = room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1);
-
-        if (room.foldedTeams.size >= requiredFolds) {
-          clearRoomTimer(room);
-          addRoomLog(
-            room,
-            `⚡ Consensus reached! All rival franchises folded on ${room.currentPlayer.name}. Instant hammer!`,
-            'announcement'
-          );
-          io.to(room.code).emit('all_teams_folded', {
-            player: room.currentPlayer,
-            highestBidder: room.highestBidder
-          });
-          handlePlayerSoldOrUnsold(room);
-          if (typeof callback === 'function') callback({ success: true, folded: true, allFolded: true });
-          return;
-        }
-      }
-
+      const consensus = evaluateLotConsensus(room);
       broadcastRoomUpdate(roomCode);
-      if (typeof callback === 'function') callback({ success: true, folded: true, allFolded: false });
+
+      if (typeof callback === 'function') {
+        callback({
+          success: true,
+          folded: true,
+          allFolded: consensus.handled,
+          outcome: consensus.outcome || null
+        });
+      }
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
     }
   });
 
-  // 9B. Spectator Cheer: Targeted Delivery & Decibel Meter Update
-  socket.on('spectator_cheer', ({ teamId, cheerType, cheerEmoji }, callback) => {
+  // 9C. Host Kick Participant
+  socket.on('kick_participant', ({ targetPlayerId, targetSocketId }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
-      if (!room.decibelMeter) {
-        room.decibelMeter = {};
-        IPL_TEAMS.forEach(t => { room.decibelMeter[t.id] = 50; });
+      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      if (!isHostCaller) return callback && callback({ success: false, error: 'Host only action' });
+
+      // Find target member
+      if (!room.members) room.members = new Map();
+      let targetMember = null;
+      if (targetPlayerId && room.members.has(targetPlayerId)) {
+        targetMember = room.members.get(targetPlayerId);
+      } else if (targetSocketId) {
+        targetMember = Array.from(room.members.values()).find(m => m.socketId === targetSocketId);
       }
 
-      const validTypes = ['horn', 'fire', 'applause', 'lightning', 'chant'];
-      const cType = validTypes.includes(cheerType) ? cheerType : 'applause';
+      if (!targetMember) {
+        return callback && callback({ success: false, error: 'Participant not found in room.' });
+      }
 
-      const targetTeam = teamId && IPL_TEAMS.some(t => t.id === teamId) 
-        ? teamId 
-        : (room.highestBidder ? room.highestBidder.teamId : 'CSK');
+      // Host cannot kick themselves
+      if (targetMember.playerId === room.hostPlayerId || targetMember.socketId === room.hostId) {
+        return callback && callback({ success: false, error: 'Host cannot be kicked.' });
+      }
 
-      const boost = cType === 'lightning' ? 8 : (cType === 'horn' || cType === 'chant' ? 5 : 3);
-      room.decibelMeter[targetTeam] = Math.min(100, (room.decibelMeter[targetTeam] || 50) + boost);
+      const kickedSocketId = targetMember.socketId;
+      const kickedPlayerId = targetMember.playerId;
+      const kickedTeamId = targetMember.teamId;
+      const kickedName = targetMember.playerName;
 
-      // 1. GLOBAL AGGREGATION: Update crowd decibel meter for everyone in room
-      io.to(room.code).emit('update_decibel_meter', {
-        teamId: targetTeam,
-        currentDecibel: room.decibelMeter[targetTeam],
-        decibelMeter: room.decibelMeter
-      });
-
-      // Also maintain backward-compatibility broadcast for legacy clients
-      io.to(room.code).emit('broadcast_cheer', {
-        teamId: targetTeam,
-        cheerType: cType,
-        cheerEmoji: cheerEmoji || '👏',
-        currentDecibel: room.decibelMeter[targetTeam]
-      });
-
-      // 2. VISUAL ANIMATION ISOLATION: Private to supported franchise manager + cheering spectator
-      let targetManagerSocketId = null;
-      for (const [sId, t] of room.teams.entries()) {
-        if (t.franchiseId === targetTeam) {
-          targetManagerSocketId = sId;
-          break;
+      // Notify target client
+      if (kickedSocketId) {
+        io.to(kickedSocketId).emit('kicked_from_room', {
+          roomCode,
+          reason: 'You were removed from the room by the host.'
+        });
+        const kickedSocket = io.sockets.sockets.get(kickedSocketId);
+        if (kickedSocket) {
+          kickedSocket.leave(roomCode);
+          kickedSocket.roomCode = null;
         }
       }
 
-      const cheerEffectPayload = {
-        teamId: targetTeam,
-        cheerType: cType,
-        cheerEmoji: cheerEmoji || '👏',
-        currentDecibel: room.decibelMeter[targetTeam]
-      };
+      // Remove from room.members
+      room.members.delete(kickedPlayerId);
 
-      // Emit visual effect to cheering spectator
-      socket.emit('spectator_cheer_effect', cheerEffectPayload);
-
-      // Emit visual effect to the supported franchise manager (if distinct)
-      if (targetManagerSocketId && targetManagerSocketId !== socket.id) {
-        io.to(targetManagerSocketId).emit('spectator_cheer_effect', cheerEffectPayload);
+      // Handle team detachment
+      if (kickedTeamId) {
+        if (!room.isStarted) {
+          // Pre-auction: free up the franchise seat for another user
+          for (const [sId, team] of room.teams.entries()) {
+            if (team.franchiseId === kickedTeamId || team.ownerPlayerId === kickedPlayerId) {
+              room.teams.delete(sId);
+              break;
+            }
+          }
+        } else {
+          // In-auction: mark auto-folded so match doesn't stall
+          if (!room.foldedTeams) room.foldedTeams = new Set();
+          room.foldedTeams.add(kickedTeamId);
+          for (const team of room.teams.values()) {
+            if (team.franchiseId === kickedTeamId) {
+              team.isFolded = true;
+              break;
+            }
+          }
+          evaluateLotConsensus(room);
+        }
       }
 
-      if (typeof callback === 'function') callback({ success: true, decibel: room.decibelMeter[targetTeam] });
+      if (room.spectators && kickedSocketId) {
+        room.spectators.delete(kickedSocketId);
+      }
+
+      addRoomLog(room, `🚫 ${kickedName} was kicked from the room by Host.`, 'warning');
+      broadcastRoomUpdate(roomCode);
+
+      if (typeof callback === 'function') callback({ success: true, kickedPlayerId });
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
     }
   });
 
-  // 10. Disconnect
+  // 10. Disconnect (3-Minute Grace Period Engine)
   socket.on('disconnect', () => {
     const roomCode = socket.roomCode;
     if (!roomCode) return;
     const room = rooms.get(roomCode);
     if (!room) return;
+
+    const pId = socket.playerId;
+    if (room.members && pId && room.members.has(pId)) {
+      const member = room.members.get(pId);
+      member.isOnline = false;
+
+      // 3-Minute Grace Period on Disconnect: do not drop franchise or reset roster
+      if (member.disconnectTimeout) clearTimeout(member.disconnectTimeout);
+      member.disconnectTimeout = setTimeout(() => {
+        if (!member.isOnline) {
+          // Grace period expired without reconnection
+          if (!room.isStarted && member.teamId) {
+            // Pre-auction: free the seat
+            for (const [sId, team] of room.teams.entries()) {
+              if (team.franchiseId === member.teamId || team.ownerPlayerId === member.playerId) {
+                room.teams.delete(sId);
+                break;
+              }
+            }
+          }
+          addRoomLog(room, `⏳ Disconnect grace period expired for ${member.playerName}.`, 'info');
+          broadcastRoomUpdate(roomCode);
+        }
+      }, 3 * 60 * 1000); // 3 minutes
+    }
 
     if (room.spectators && room.spectators.has(socket.id)) {
       room.spectators.delete(socket.id);
@@ -1177,21 +1418,26 @@ io.on('connection', (socket) => {
 
     const leavingTeam = room.teams.get(socket.id);
     if (leavingTeam) {
-      addRoomLog(room, `⚠️ ${leavingTeam.managerName} (${leavingTeam.franchiseId}) disconnected.`);
+      addRoomLog(room, `⚠️ ${leavingTeam.managerName} (${leavingTeam.franchiseId}) disconnected (reconnection window active).`);
     }
 
+    // Host transfer if needed
     if (socket.id === room.hostId) {
-      const remainingSockets = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
-      if (remainingSockets.length > 0) {
-        room.hostId = remainingSockets[0];
+      const activeSockets = Array.from(io.sockets.adapter.rooms.get(roomCode) || []).filter(s => s !== socket.id);
+      if (activeSockets.length > 0) {
+        room.hostId = activeSockets[0];
+        const newHostSocket = io.sockets.sockets.get(activeSockets[0]);
+        if (newHostSocket && newHostSocket.playerId) {
+          room.hostPlayerId = newHostSocket.playerId;
+        }
         addRoomLog(room, `👑 Host disconnected. New host assigned.`);
       } else {
-        // Cache grace period: keep room alive for 5 minutes in memory so user can reconnect without losing progress
+        // Cache grace period: keep room alive for 5 minutes in memory if all disconnected
         if (!room.cleanupTimer) {
           room.cleanupTimer = setTimeout(() => {
             const currentSockets = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
             if (currentSockets.length === 0) {
-              clearRoomTimer(room);
+              RoomTimerManager.clear(room);
               rooms.delete(roomCode);
               console.log(`[CLEANUP] Room ${roomCode} wiped from memory after 5 min idle.`);
             }
