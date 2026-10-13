@@ -1178,6 +1178,14 @@ io.on('connection', (socket) => {
         color: team.color
       };
 
+      // Reset folds on price raise: rival teams get opportunity to re-evaluate at new price point
+      if (room.foldedTeams) room.foldedTeams.clear();
+      if (room.teams) {
+        for (const t of room.teams.values()) {
+          t.isFolded = false;
+        }
+      }
+
       addRoomLog(
         room,
         `💰 ${team.name} (${team.franchiseId}) raised bid to ₹${(nextBidAmount / 10000000).toFixed(2)} Cr!`,
