@@ -216,6 +216,7 @@ function sanitizeRoomState(room) {
     isOnline: !!m.isOnline,
     isHost: m.playerId === room.hostPlayerId
   })) : [];
+  const requiredFolds = room.teams ? (room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1)) : 1;
   return {
     code: room.code,
     hostId: room.hostId,
