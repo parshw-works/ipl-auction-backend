@@ -50,6 +50,7 @@ function updateServerUI(status, label) {
 
 // Resilient Socket.IO client creation
 let socket = null;
+window.socket = null;
 
 function initSocket() {
   if (socket) return socket;
@@ -71,6 +72,7 @@ function initSocket() {
 
     // Always connect directly to Render backend
     socket = io(CLOUD_BACKEND_URL, opts);
+    window.socket = socket;
 
     socket.on('connect', () => {
       console.log('[IPL] Connected to cloud! Socket ID:', socket.id);
@@ -256,6 +258,65 @@ function openStandingsUI() {
   }
 }
 
+// 1. Centralized Leave Execution Function
+function executeLeaveMatch() {
+  const roomCode = (typeof currentRoomCode === 'string' ? currentRoomCode : null) || window.currentRoomCode || (currentRoom ? currentRoom.code : null);
+  const playerId = typeof getOrCreatePlayerId === 'function' ? getOrCreatePlayerId() : null;
+
+  // A. Notify Server
+  const activeSocket = window.socket || (typeof socket !== 'undefined' ? socket : null);
+  if (activeSocket && activeSocket.connected && roomCode) {
+    activeSocket.emit('leave_room', { roomCode, playerId });
+  }
+
+  // B. Purge Session from LocalStorage
+  try {
+    const activeSessions = JSON.parse(localStorage.getItem('ipl_active_sessions') || '{}');
+    if (roomCode && activeSessions[roomCode]) {
+      delete activeSessions[roomCode];
+      localStorage.setItem('ipl_active_sessions', JSON.stringify(activeSessions));
+    }
+    if (roomCode && typeof removeActiveSession === 'function') {
+      removeActiveSession(roomCode);
+    }
+    sessionStorage.clear();
+  } catch (err) {
+    console.error('Storage clear error:', err);
+  }
+
+  // C. Close all open modals & backdrops
+  document.querySelectorAll('.modal-backdrop, [id^="modal-"]').forEach(modal => {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  });
+  const dropdown = document.getElementById('settingsDropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+
+  // D. Reset State Variables
+  window.currentRoomCode = null;
+  currentRoomCode = null;
+  currentRoom = null;
+  myTeam = null;
+  window.myTeamId = null;
+
+  // E. Clean Navigation back to Home View
+  if (typeof showView === 'function') {
+    showView('view-home');
+    try {
+      history.pushState(null, '', '/');
+    } catch (e) {}
+  } else if (typeof navigate === 'function') {
+    navigate('home', null, true);
+  } else {
+    window.location.hash = '#home';
+    window.location.reload();
+  }
+}
+
+function performSessionCleanupBeforeNewMatch() {
+  executeLeaveMatch();
+}
+
 // Global Click Delegation on Document for Voice, Cheer, Settings & Copy
 document.addEventListener('click', (e) => {
   const voiceTarget = e.target.closest('#toggleVoiceBtn, #btn-voice-toggle');
@@ -312,54 +373,12 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // Leave Room (from Header or Settings Modal)
-  const leaveBtn = e.target.closest('#btnLeaveRoomHeader, #btnLeaveRoomModal');
-  if (leaveBtn) {
-    e.preventDefault();
-    closeSettingsModal();
-    const dropdown = document.getElementById('settingsDropdown');
-    if (dropdown) dropdown.classList.add('hidden');
-    if (currentViewState === 'auction') {
-      openConfirmExitModal(() => {
-        if (currentRoom) removeActiveSession(currentRoom.code);
-        performSessionCleanupBeforeNewMatch();
-        navigate('home', null, true);
-        showToast('Left match. Returned to Home.', 'info');
-      });
-      return;
-    }
-    if (confirm('Leave current room and return to Home Gateway?')) {
-      if (currentRoom) removeActiveSession(currentRoom.code);
-      performSessionCleanupBeforeNewMatch();
-      navigate('home', null, true);
-      showToast('Left match. Returned to Home.', 'info');
-    }
-    return;
-  }
-
   // Confirm Exit Auction Modal: Stay Action
   const stayAuctionBtn = e.target.closest('#btn-confirm-stay-auction');
   if (stayAuctionBtn) {
     e.preventDefault();
     closeConfirmExitModal();
     showToast('Staying in live auction 🛡️', 'info');
-    return;
-  }
-
-  // Confirm Exit Auction Modal: Leave Action
-  const leaveAuctionBtn = e.target.closest('#btn-confirm-leave-auction');
-  if (leaveAuctionBtn) {
-    e.preventDefault();
-    const action = pendingExitCallback;
-    closeConfirmExitModal();
-    if (action) {
-      action();
-    } else {
-      if (currentRoom) removeActiveSession(currentRoom.code);
-      performSessionCleanupBeforeNewMatch();
-      navigate('home', null, true);
-      showToast('Left match. Returned to Home.', 'info');
-    }
     return;
   }
 
@@ -390,6 +409,29 @@ document.addEventListener('click', (e) => {
       m.classList.remove('flex');
     });
     return;
+  }
+});
+
+// 2. Global Event Delegation (Catches ALL Leave Triggers)
+document.addEventListener('click', (e) => {
+  // Target any button with matching ID, class, or data-action
+  const leaveTrigger = e.target.closest(
+    '#btn-leave-match, #btn-confirm-leave, #btn-settings-leave, .btn-leave-action, [data-action="leave-match"], #btnLeaveRoomHeader, #btnLeaveRoomModal, #btn-confirm-leave-auction'
+  );
+
+  if (leaveTrigger) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // If it's a direct confirm button or user confirms via native dialog
+    const needsConfirmation = leaveTrigger.getAttribute('data-confirm') === 'true';
+    if (needsConfirmation) {
+      if (confirm('Are you sure you want to leave this match?')) {
+        executeLeaveMatch();
+      }
+    } else {
+      executeLeaveMatch();
+    }
   }
 });
 
@@ -587,7 +629,11 @@ const btnToggleSpectatorDesktop = document.getElementById('btnToggleSpectatorDes
 const btnToggleSpectatorModal = document.getElementById('btnToggleSpectatorModal');
 
 const roomBadge = document.getElementById('roomBadge');
-const currentRoomCode = document.getElementById('currentRoomCode');
+const currentRoomCodeEl = document.getElementById('currentRoomCode');
+let currentRoomCode = null;
+window.currentRoomCode = null;
+let myTeamId = null;
+window.myTeamId = null;
 const lobbyRoomCode = document.getElementById('lobbyRoomCode');
 const btnCopyCode = document.getElementById('btnCopyCode');
 const hostNotice = document.getElementById('hostNotice');
@@ -1003,9 +1049,11 @@ function reconnectToRoom(roomCode, session) {
 
       saveActiveSession(currentRoom.code, session.managerName, myTeam ? myTeam.franchiseId : null, res.sessionToken, currentRole, pId);
 
-      if (roomBadge && currentRoomCode) {
+      if (roomBadge) {
         roomBadge.classList.remove('hidden');
-        currentRoomCode.textContent = currentRoom.code;
+        if (currentRoomCodeEl) currentRoomCodeEl.textContent = currentRoom.code;
+        currentRoomCode = currentRoom.code;
+        window.currentRoomCode = currentRoom.code;
       }
 
       updateUserFranchisePill();
@@ -1546,7 +1594,9 @@ function setupLobby() {
   switchView('LOBBY');
   if (roomBadge) roomBadge.classList.remove('hidden');
   if (currentRoom && currentRoom.code) {
-    if (currentRoomCode) currentRoomCode.textContent = currentRoom.code;
+    currentRoomCode = currentRoom.code;
+    window.currentRoomCode = currentRoom.code;
+    if (currentRoomCodeEl) currentRoomCodeEl.textContent = currentRoom.code;
     if (lobbyRoomCode) lobbyRoomCode.textContent = currentRoom.code;
   }
 
@@ -3228,9 +3278,9 @@ function renderPodium(standings) {
   const rest = standings.slice(3);
 
   // Trigger celebration effects ONLY ONCE per room session for this client
-  const currentRoomCode = (currentRoom && currentRoom.code) ? currentRoom.code : 'active_room';
-  if (!celebratedPodiumRooms.has(currentRoomCode)) {
-    celebratedPodiumRooms.add(currentRoomCode);
+  const podiumRoomCode = (currentRoom && currentRoom.code) ? currentRoom.code : 'active_room';
+  if (!celebratedPodiumRooms.has(podiumRoomCode)) {
+    celebratedPodiumRooms.add(podiumRoomCode);
 
     if (typeof confetti === 'function') {
       confetti({ particleCount: 220, spread: 120, origin: { y: 0.55 } });
@@ -3603,6 +3653,14 @@ function registerSocketAuctionListeners(s) {
     if (playerUnsoldWatermark) playerUnsoldWatermark.classList.add('hidden');
     updateBidButton();
     updateSquadDisplay(myTeam, currentRoom ? currentRoom.settings : null);
+  });
+
+  s.on('player_left', ({ playerId, teams, memberCount }) => {
+    if (teams && currentRoom) {
+      currentRoom.teams = Array.isArray(teams) ? teams : Object.values(teams);
+      renderFranchiseGrid();
+      updateDrawerTeams();
+    }
   });
 
   s.on('player_sold', ({ player, team, price }) => {
