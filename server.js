@@ -261,6 +261,21 @@ function sanitizeRoomState(room) {
   };
 }
 
+function getTeamForSocket(room, socket) {
+  if (!room || !room.teams) return null;
+  let team = room.teams.get(socket.id);
+  if (team) return team;
+  for (const [sId, t] of room.teams.entries()) {
+    if (t.socketId === socket.id || (socket.playerId && t.ownerPlayerId === socket.playerId)) {
+      room.teams.delete(sId);
+      t.socketId = socket.id;
+      room.teams.set(socket.id, t);
+      return t;
+    }
+  }
+  return null;
+}
+
 function broadcastRoomUpdate(roomCode) {
   const room = rooms.get(roomCode);
   if (!room) return;
@@ -1110,7 +1125,7 @@ io.on('connection', (socket) => {
         return callback && callback({ success: false, error: 'No active player on hammer.' });
       }
 
-      const team = room.teams.get(socket.id);
+      const team = getTeamForSocket(room, socket);
       if (!team) return callback && callback({ success: false, error: 'You have not claimed a team franchise.' });
 
       // Rule 1: If a team folds on a cricket player, that team can't bid on that player again
@@ -1121,8 +1136,9 @@ io.on('connection', (socket) => {
         });
       }
 
-      // Guard: Highest bidder cannot bid against themselves
-      if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
+      // Guard: Highest bidder cannot bid against themselves (allow self-raise in solo/1-team test mode)
+      const isSoloTesting = room.teams.size <= 1;
+      if (!isSoloTesting && room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
         return callback && callback({ success: false, error: 'You already hold the highest bid!' });
       }
 
@@ -1152,6 +1168,7 @@ io.on('connection', (socket) => {
             success: false, 
             error: `Outbid! Price is now ₹${(room.currentBid / 10000000).toFixed(2)} Cr.`,
             currentBid: room.currentBid,
+            serverCurrentBid: room.currentBid,
             nextExpectedBid: nextBidAmount
           });
         }
@@ -1293,7 +1310,7 @@ io.on('connection', (socket) => {
         return callback && callback({ success: false, error: 'No active player on hammer' });
       }
 
-      const team = room.teams.get(socket.id);
+      const team = getTeamForSocket(room, socket);
       if (!team) return callback && callback({ success: false, error: 'Select a team first' });
 
       // Security: Leading/Highest bidder CANNOT fold against their own bid!
