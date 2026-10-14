@@ -1469,6 +1469,112 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 9D. Leave Room
+  socket.on('leave_room', ({ roomCode, playerId }, callback) => {
+    try {
+      const code = (roomCode || socket.roomCode || '').toUpperCase().trim();
+      const room = rooms.get(code);
+      if (!room) {
+        if (typeof callback === 'function') callback({ success: false, error: 'Room not found' });
+        return;
+      }
+
+      const pId = playerId || socket.playerId;
+      let member = null;
+      if (room.members) {
+        if (typeof room.members.get === 'function') {
+          member = room.members.get(pId);
+        } else if (room.members[pId]) {
+          member = room.members[pId];
+        }
+      }
+
+      if (member) {
+        const teamId = member.teamId;
+        // If auction hasn't started, release their franchise
+        if (!room.isStarted && teamId) {
+          if (room.teams instanceof Map) {
+            for (const [sId, team] of room.teams.entries()) {
+              if (team.franchiseId === teamId || team.ownerPlayerId === pId || sId === socket.id) {
+                room.teams.delete(sId);
+                break;
+              }
+            }
+          } else if (room.teams && typeof room.teams === 'object') {
+            delete room.teams[teamId];
+          }
+        } else if (room.isStarted && teamId) {
+          // If auction is live, mark folded so match does not stall
+          if (!room.foldedTeams) room.foldedTeams = new Set();
+          room.foldedTeams.add(teamId);
+          if (room.teams instanceof Map) {
+            for (const team of room.teams.values()) {
+              if (team.franchiseId === teamId || team.ownerPlayerId === pId) {
+                team.isFolded = true;
+                break;
+              }
+            }
+          }
+          evaluateFoldConsensus(room);
+        }
+
+        if (member.disconnectTimeout) {
+          clearTimeout(member.disconnectTimeout);
+          member.disconnectTimeout = null;
+        }
+
+        if (room.members instanceof Map) {
+          room.members.delete(pId);
+        } else {
+          delete room.members[pId];
+        }
+      }
+
+      if (room.spectators) {
+        if (typeof room.spectators.delete === 'function') {
+          room.spectators.delete(socket.id);
+        } else if (Array.isArray(room.spectators)) {
+          room.spectators = room.spectators.filter(id => id !== socket.id);
+        }
+      }
+
+      socket.leave(code);
+      if (socket.roomCode === code) socket.roomCode = null;
+
+      addRoomLog(room, `🚪 ${member ? member.playerName : 'A participant'} left the match.`, 'info');
+
+      // Re-assign host if host left
+      if (socket.id === room.hostId || (pId && pId === room.hostPlayerId)) {
+        const remainingSockets = Array.from(io.sockets.adapter.rooms.get(code) || []).filter(s => s !== socket.id);
+        if (remainingSockets.length > 0) {
+          room.hostId = remainingSockets[0];
+          const newHostSocket = io.sockets.sockets.get(remainingSockets[0]);
+          if (newHostSocket && newHostSocket.playerId) {
+            room.hostPlayerId = newHostSocket.playerId;
+          }
+          addRoomLog(room, `👑 Host left. Transferred host privileges.`, 'info');
+        }
+      }
+
+      const memberCount = room.members instanceof Map ? room.members.size : Object.keys(room.members || {}).length;
+      const teamsData = room.teams instanceof Map ? Array.from(room.teams.values()) : room.teams;
+
+      // Broadcast updated room state & player_left event to remaining participants
+      io.to(code).emit('player_left', {
+        playerId: pId,
+        teams: teamsData,
+        memberCount
+      });
+
+      broadcastRoomUpdate(code);
+
+      if (typeof callback === 'function') callback({ success: true });
+    } catch (err) {
+      console.error('[leave_room] error:', err);
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
+  });
+
   // 10. Disconnect (3-Minute Grace Period Engine)
   socket.on('disconnect', () => {
     const roomCode = socket.roomCode;
