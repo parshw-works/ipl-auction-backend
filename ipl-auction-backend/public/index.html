@@ -51,7 +51,7 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="/styles.css?v=30.0" />
+  <link rel="stylesheet" href="/styles.css?v=31.0" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <!-- Reliable Socket.IO Client with Fallback -->
   <script src="/socket.io.min.js"></script>
@@ -640,28 +640,87 @@
             <span>PURSE LEFT: <b id="desktop-purse" class="text-emerald-400">₹42.50 Cr</b></span>
           </div>
 
-          <!-- Action Button Dock -->
-          <div class="w-full flex items-center gap-2.5 shrink-0">
-            <!-- FOLD (~30% width) -->
-            <button id="btn-fold" class="w-[30%] sm:w-[28%] min-h-[50px] sm:min-h-[54px] h-13 sm:h-14 py-2.5 sm:py-3 bg-gradient-to-r from-red-950/90 to-[#421217] hover:from-red-900 border border-red-500/60 text-red-300 font-black text-xs sm:text-sm rounded-full flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-red-950/40 active:scale-[0.98] cursor-pointer">
-              <span class="text-sm sm:text-base">✋</span>
-              <span id="fold-btn-text">FOLD</span>
-            </button>
+          <!-- Manager Action Dock -->
+          <div id="manager-dock-controls" class="w-full flex flex-col gap-2 shrink-0">
+            <div class="w-full flex items-center gap-2.5 shrink-0">
+              <!-- FOLD (~30% width) -->
+              <button id="btn-fold" class="w-[30%] sm:w-[28%] min-h-[50px] sm:min-h-[54px] h-13 sm:h-14 py-2.5 sm:py-3 bg-gradient-to-r from-red-950/90 to-[#421217] hover:from-red-900 border border-red-500/60 text-red-300 font-black text-xs sm:text-sm rounded-full flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-red-950/40 active:scale-[0.98] cursor-pointer">
+                <span class="text-sm sm:text-base">✋</span>
+                <span id="fold-btn-text">FOLD</span>
+              </button>
 
-            <!-- BID (~70% width) -->
-            <button id="btn-place-bid" class="w-[70%] sm:w-[72%] min-h-[50px] sm:min-h-[54px] h-13 sm:h-14 py-2.5 sm:py-3 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 active:scale-[0.98] text-slate-950 font-black text-sm sm:text-base tracking-wide rounded-full shadow-xl shadow-amber-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer">
-              <span class="text-base sm:text-lg">🔨</span>
-              <span id="bid-btn-text" class="truncate font-black">BID ₹9.00 CR (+50L)</span>
-            </button>
+              <!-- BID (~70% width) -->
+              <button id="btn-place-bid" class="w-[70%] sm:w-[72%] min-h-[50px] sm:min-h-[54px] h-13 sm:h-14 py-2.5 sm:py-3 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 active:scale-[0.98] text-slate-950 font-black text-sm sm:text-base tracking-wide rounded-full shadow-xl shadow-amber-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer">
+                <span class="text-base sm:text-lg">🔨</span>
+                <span id="bid-btn-text" class="truncate font-black">BID ₹9.00 CR (+50L)</span>
+              </button>
+            </div>
+
+            <!-- Telemetry Sub-line (Mobile View) -->
+            <div class="flex lg:hidden items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-[11px] text-slate-400 font-mono text-center shrink-0">
+              <span>Squad: <b id="footer-squad" class="text-slate-200">14/25</b></span>
+              <span>•</span>
+              <span>Purse Left: <b id="footer-purse" class="text-emerald-400">₹42.50 Cr</b></span>
+              <span>•</span>
+              <span>Passed: <b id="footer-folds" class="text-amber-400">3/9</b></span>
+            </div>
+
+            <div id="bidStatusNotice" class="hidden text-center text-xs text-amber-400 font-medium py-1"></div>
           </div>
 
-          <!-- Telemetry Sub-line (Mobile View) -->
-          <div class="flex lg:hidden items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-[11px] text-slate-400 font-mono text-center shrink-0">
-            <span>Squad: <b id="footer-squad" class="text-slate-200">14/25</b></span>
-            <span>•</span>
-            <span>Purse Left: <b id="footer-purse" class="text-emerald-400">₹42.50 Cr</b></span>
-            <span>•</span>
-            <span>Passed: <b id="footer-folds" class="text-amber-400">3/9</b></span>
+          <!-- Spectator Fan Deck Dock (Visible only in Spectator Mode) -->
+          <div id="spectator-dock-controls" class="hidden w-full flex-col gap-2.5 p-3 rounded-2xl bg-gradient-to-b from-[#0e172e] to-[#070b16] border border-cyan-500/30 shadow-2xl shrink-0">
+            <!-- Spectator Title & Current Allegiance -->
+            <div class="flex items-center justify-between text-xs">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                <span class="font-display font-black text-cyan-300 tracking-wider uppercase text-[11px]">FAN DECK • SPECTATING</span>
+              </div>
+              <div class="text-[11px] text-slate-400">
+                Cheering: <b id="spectator-allegiance-name" class="text-amber-400">Chennai Super Kings</b>
+              </div>
+            </div>
+
+            <!-- Franchise Allegiance Selector (Horizontal Scroll) -->
+            <div id="allegiancePickerBar" class="w-full flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+              <!-- Injected by renderAllegiancePicker() -->
+            </div>
+
+            <!-- Spectator Cheer Reaction Tools -->
+            <div class="flex items-center justify-between gap-1.5 pt-1 border-t border-white/10">
+              <button class="cheer-btn flex-1 py-2 bg-[#122044] hover:bg-[#1a2f63] border border-cyan-400/30 hover:border-cyan-400 rounded-xl flex flex-col items-center justify-center gap-0.5 active:scale-95 transition cursor-pointer" data-cheer="horn" data-emoji="🎺" title="Stadium Horn">
+                <span class="text-base sm:text-lg">🎺</span>
+                <span class="text-[9px] font-bold text-cyan-200 uppercase font-mono">Horn</span>
+              </button>
+              <button class="cheer-btn flex-1 py-2 bg-[#122044] hover:bg-[#1a2f63] border border-cyan-400/30 hover:border-cyan-400 rounded-xl flex flex-col items-center justify-center gap-0.5 active:scale-95 transition cursor-pointer" data-cheer="applause" data-emoji="👏" title="Applause">
+                <span class="text-base sm:text-lg">👏</span>
+                <span class="text-[9px] font-bold text-cyan-200 uppercase font-mono">Clap</span>
+              </button>
+              <button class="cheer-btn flex-1 py-2 bg-[#122044] hover:bg-[#1a2f63] border border-cyan-400/30 hover:border-cyan-400 rounded-xl flex flex-col items-center justify-center gap-0.5 active:scale-95 transition cursor-pointer" data-cheer="fire" data-emoji="🔥" title="Hype Fire">
+                <span class="text-base sm:text-lg">🔥</span>
+                <span class="text-[9px] font-bold text-amber-300 uppercase font-mono">Hype</span>
+              </button>
+              <button class="cheer-btn flex-1 py-2 bg-[#122044] hover:bg-[#1a2f63] border border-cyan-400/30 hover:border-cyan-400 rounded-xl flex flex-col items-center justify-center gap-0.5 active:scale-95 transition cursor-pointer" data-cheer="lightning" data-emoji="⚡" title="Lightning Shock">
+                <span class="text-base sm:text-lg">⚡</span>
+                <span class="text-[9px] font-bold text-yellow-300 uppercase font-mono">Shock</span>
+              </button>
+              <button class="cheer-btn flex-1 py-2 bg-[#122044] hover:bg-[#1a2f63] border border-cyan-400/30 hover:border-cyan-400 rounded-xl flex flex-col items-center justify-center gap-0.5 active:scale-95 transition cursor-pointer" data-cheer="chant" data-emoji="🗣️" title="Franchise Chant">
+                <span class="text-base sm:text-lg">🗣️</span>
+                <span class="text-[9px] font-bold text-emerald-300 uppercase font-mono">Chant</span>
+              </button>
+            </div>
+
+            <!-- Stadium Hype / Decibel Meter -->
+            <div class="flex items-center justify-between gap-2 px-1 text-[10px] text-slate-400 font-mono">
+              <div class="flex items-center gap-1.5">
+                <i class="fa-solid fa-volume-high text-cyan-400 text-xs"></i>
+                <span>CROWD HYPE:</span>
+              </div>
+              <div class="flex-1 h-2 bg-slate-900 rounded-full overflow-hidden border border-white/10 p-0.5">
+                <div id="decibelFill" class="h-full bg-gradient-to-r from-cyan-400 via-amber-400 to-rose-500 rounded-full transition-all duration-300" style="width: 45%;"></div>
+              </div>
+              <span id="decibelValueText" class="font-bold text-slate-200 shrink-0">82 dB</span>
+            </div>
           </div>
 
           <!-- Recent Bid History Feed (Desktop View, Reference 4) -->
@@ -1023,11 +1082,34 @@
     </div>
   </div>
 
+  <!-- ========================================================================= -->
+  <!-- MODAL: CONFIRM EXIT AUCTION ROOM (#modal-confirm-exit)                     -->
+  <!-- ========================================================================= -->
+  <div id="modal-confirm-exit" class="modal-backdrop hidden fixed inset-0 z-[99999] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-gradient-to-b from-[#131d36] to-[#0a1020] border border-amber-500/40 rounded-3xl p-5 shadow-2xl flex flex-col items-center text-center animate-modal-pop">
+      <div class="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-2xl mb-3 shadow-lg shadow-amber-500/20">
+        ⚠️
+      </div>
+      <h3 class="text-lg font-black font-display uppercase tracking-wide text-white mb-1">Leave Live Auction?</h3>
+      <p class="text-xs text-slate-300 leading-relaxed mb-5">
+        Are you sure you want to leave the live auction room? Your franchise and active bids will remain in the match, but you will miss subsequent lots.
+      </p>
+      <div class="w-full flex flex-col gap-2.5">
+        <button id="btn-confirm-stay-auction" class="w-full py-3 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/25 active:scale-95 transition cursor-pointer">
+          🛡️ Stay in Auction
+        </button>
+        <button id="btn-confirm-leave-auction" class="w-full py-2.5 bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold text-xs uppercase tracking-wider rounded-xl active:scale-95 transition cursor-pointer">
+          🚪 Leave Room
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- FLOATING CHEER SPRITE REACTION LAYER (Full-screen overlay for both mobile and desktop) -->
   <div id="cheerReactionContainer" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
   <div id="cheer-particle-container" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
 
-  <script src="/app.js?v=30.0"></script>
+  <script src="/app.js?v=31.0"></script>
   <script>
     // WIPE ALL SERVICE WORKERS & ALL CACHES TO PREVENT ANY OLD CODE FREEZING
     if ('serviceWorker' in navigator) {
