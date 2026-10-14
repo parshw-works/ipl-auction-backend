@@ -51,7 +51,7 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="/styles.css?v=31.0" />
+  <link rel="stylesheet" href="/styles.css?v=32.0" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <!-- Reliable Socket.IO Client with Fallback -->
   <script src="/socket.io.min.js"></script>
@@ -325,6 +325,10 @@
           <button id="btnSubmitJoinRoom" class="shimmer-btn tactile-btn w-full py-4 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 hover:from-blue-500 hover:to-cyan-400 text-white font-black font-display rounded-2xl text-base uppercase tracking-widest shadow-2xl shadow-cyan-500/30 transition border-t border-white/30">
             <i class="fa-solid fa-door-open mr-2"></i> ENTER WAR ROOM
           </button>
+          <button id="btnSubmitJoinSpectator" type="button" class="w-full py-3.5 bg-[#0e172e] hover:bg-[#162347] border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 font-bold font-display rounded-2xl text-xs uppercase tracking-widest transition flex items-center justify-center gap-2 active:scale-95 shadow-lg shadow-cyan-500/10 cursor-pointer">
+            <i class="fa-solid fa-glasses text-cyan-400"></i>
+            <span>WATCH AS SPECTATOR</span>
+          </button>
         </div>
       </div>
     </div>
@@ -365,7 +369,11 @@
           </div>
         </div>
 
-        <div class="flex items-center space-x-2.5">
+        <div class="flex items-center space-x-2.5 flex-wrap gap-y-2">
+          <button id="btnSwitchToSpectatorLobby" type="button" class="px-4 py-2 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 rounded-xl text-cyan-300 text-xs font-bold font-display uppercase tracking-wider flex items-center gap-1.5 active:scale-95 transition cursor-pointer">
+            <i class="fa-solid fa-glasses"></i>
+            <span id="btnSwitchToSpectatorLobbyText">Watch as Spectator</span>
+          </button>
           <div id="hostNotice" class="text-xs text-amber-300 bg-amber-500/10 px-3.5 py-2 rounded-xl border border-amber-500/30 font-display font-bold uppercase tracking-wider">
             <i class="fa-solid fa-crown mr-1.5 text-amber-400"></i> ROOM HOST
           </div>
@@ -445,8 +453,12 @@
             <span id="header-purse-val" class="font-mono text-xs font-black">₹42.50 Cr</span>
           </button>
 
-          <!-- Standings Pill + Settings Icon -->
-          <div class="flex items-center gap-2">
+          <!-- Standings Pill + Spectator Toggle + Settings Icon -->
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <button id="btnToggleSpectatorAuction" class="px-2.5 py-1.5 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 rounded-xl text-cyan-300 text-xs font-bold font-display uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-all shadow-md cursor-pointer" title="Switch Spectator / Manager Mode">
+              <i class="fa-solid fa-glasses"></i>
+              <span id="mobileSpectatorBtnText" class="hidden sm:inline">Spectator</span>
+            </button>
             <button id="btn-open-standings" class="px-3 py-1.5 bg-[#172544] hover:bg-[#1e315b] border border-[#274075] rounded-xl text-xs font-bold text-sky-200 flex items-center gap-1.5 active:scale-95 transition-all shadow-md cursor-pointer">
               <i class="fa-solid fa-chart-simple text-sky-400 text-xs"></i>
               <span>Standings</span>
@@ -484,7 +496,7 @@
           <span class="text-slate-400 text-xs">📋</span>
         </button>
 
-        <!-- Right: Franchise Pill, Standings, Settings -->
+        <!-- Right: Franchise Pill, Standings, Spectator Toggle, Settings -->
         <div class="flex items-center gap-3">
           <button id="btn-header-roster-desktop" class="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 rounded-full text-slate-950 font-black text-xs shadow-md cursor-pointer active:scale-95 transition">
             <div class="w-4 h-4 rounded-full bg-slate-950/20 flex items-center justify-center p-0.5 overflow-hidden">
@@ -493,6 +505,10 @@
             <span id="desktop-team-badge" class="font-black">CSK</span>
             <span class="text-slate-900/40">|</span>
             <span id="desktop-purse-val" class="font-mono font-black">₹42.50 Cr</span>
+          </button>
+          <button id="btnToggleSpectatorDesktop" class="px-3 py-1.5 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 rounded-xl text-cyan-300 text-xs font-bold font-display uppercase tracking-wider flex items-center gap-1.5 active:scale-95 transition cursor-pointer" title="Switch Spectator / Manager Mode">
+            <i class="fa-solid fa-glasses"></i>
+            <span id="desktopSpectatorBtnText">Spectate</span>
           </button>
           <button id="btn-open-standings-desktop" class="px-3.5 py-1.5 bg-[#172544] hover:bg-[#1e315b] border border-[#274075] rounded-xl text-xs font-bold text-sky-200 flex items-center gap-1.5 cursor-pointer active:scale-95 transition">
             <i class="fa-solid fa-chart-simple text-sky-400 text-xs"></i>
@@ -1051,6 +1067,20 @@
           </button>
         </div>
 
+        <!-- Switch Role (Manager / Spectator) -->
+        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-white/10">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-solid fa-glasses text-cyan-400 text-sm"></i>
+            <div>
+              <div class="text-xs font-bold text-white uppercase tracking-wider">Role Mode</div>
+              <div id="modalRoleDesc" class="text-[10px] text-slate-400">Current: Manager</div>
+            </div>
+          </div>
+          <button id="btnToggleSpectatorModal" class="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-laserCyan border border-cyan-500/40 text-xs font-mono font-bold active:scale-95 transition cursor-pointer">
+            Switch to Spectator
+          </button>
+        </div>
+
         <!-- Leave Room button -->
         <div class="pt-2 border-t border-white/10">
           <button id="btnLeaveRoomModal" class="w-full px-3 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-bold flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer">
@@ -1109,7 +1139,7 @@
   <div id="cheerReactionContainer" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
   <div id="cheer-particle-container" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
 
-  <script src="/app.js?v=31.0"></script>
+  <script src="/app.js?v=32.0"></script>
   <script>
     // WIPE ALL SERVICE WORKERS & ALL CACHES TO PREVENT ANY OLD CODE FREEZING
     if ('serviceWorker' in navigator) {
