@@ -579,7 +579,12 @@ const formJoinRoom = document.getElementById('formJoinRoom');
 const inputManagerName = document.getElementById('inputManagerName');
 const btnSubmitCreateRoom = document.getElementById('btnSubmitCreateRoom');
 const btnSubmitJoinRoom = document.getElementById('btnSubmitJoinRoom');
+const btnSubmitJoinSpectator = document.getElementById('btnSubmitJoinSpectator');
 const inputJoinRoomCode = document.getElementById('inputJoinRoomCode');
+const btnSwitchToSpectatorLobby = document.getElementById('btnSwitchToSpectatorLobby');
+const btnToggleSpectatorAuction = document.getElementById('btnToggleSpectatorAuction');
+const btnToggleSpectatorDesktop = document.getElementById('btnToggleSpectatorDesktop');
+const btnToggleSpectatorModal = document.getElementById('btnToggleSpectatorModal');
 
 const roomBadge = document.getElementById('roomBadge');
 const currentRoomCode = document.getElementById('currentRoomCode');
@@ -1436,8 +1441,8 @@ btnSubmitCreateRoom.addEventListener('click', () => {
   }
 });
 
-// Join Room
-btnSubmitJoinRoom.addEventListener('click', () => {
+// Join Room Action (Manager or Spectator)
+function joinRoomAction(asSpectator = false) {
   const roomCode = inputJoinRoomCode.value.trim().toUpperCase();
   if (!roomCode) return showToast('Please enter room code', 'warning');
 
@@ -1457,27 +1462,34 @@ btnSubmitJoinRoom.addEventListener('click', () => {
     socket = initSocket();
   }
 
-  const origHTML = btnSubmitJoinRoom.innerHTML;
-  btnSubmitJoinRoom.disabled = true;
-  btnSubmitJoinRoom.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Entering...';
+  const activeBtn = asSpectator ? btnSubmitJoinSpectator : btnSubmitJoinRoom;
+  const origHTML = activeBtn ? activeBtn.innerHTML : '';
+  if (activeBtn) {
+    activeBtn.disabled = true;
+    activeBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> ${asSpectator ? 'Spectating...' : 'Entering...'}`;
+  }
 
   const timeout = setTimeout(() => {
-    btnSubmitJoinRoom.disabled = false;
-    btnSubmitJoinRoom.innerHTML = origHTML;
+    if (activeBtn) {
+      activeBtn.disabled = false;
+      activeBtn.innerHTML = origHTML;
+    }
     showToast('Server response timed out. Please check your room code or connection.', 'warning');
   }, 12000);
 
   const performJoin = () => {
     const pId = getOrCreatePlayerId();
-    socket.emit('join_room', { roomCode, managerName: mName, playerId: pId }, (res) => {
+    socket.emit('join_room', { roomCode, managerName: mName, playerId: pId, asSpectator }, (res) => {
       clearTimeout(timeout);
-      btnSubmitJoinRoom.disabled = false;
-      btnSubmitJoinRoom.innerHTML = origHTML;
+      if (activeBtn) {
+        activeBtn.disabled = false;
+        activeBtn.innerHTML = origHTML;
+      }
 
       if (res && res.success) {
         currentRoom = res.roomState;
         isHost = (currentRoom.hostPlayerId === pId || currentRoom.hostId === socket.id);
-        currentRole = res.role || (currentRoom.isStarted ? 'spectator' : 'manager');
+        currentRole = res.role || (asSpectator || currentRoom.isStarted ? 'spectator' : 'manager');
         myTeam = null;
 
         saveActiveSession(roomCode, mName, null, res.sessionToken, currentRole, pId);
@@ -1485,12 +1497,13 @@ btnSubmitJoinRoom.addEventListener('click', () => {
         if (currentRole === 'spectator' || currentRoom.isStarted) {
           navigate('auction', roomCode, true);
           updateAuctionView(currentRoom);
-          showToast(`Joined Arena [${roomCode}] as Spectator!`, 'info');
+          showToast(`Joined Arena [${roomCode}] as Spectator! 👓`, 'info');
         } else {
           navigate('lobby', roomCode, true);
           setupLobby();
           showToast(`Joined room [${roomCode}]!`, 'success');
         }
+        updateSpectatorButtonLabels();
       } else {
         showToast(res ? res.error : 'Room not found', 'error');
       }
@@ -1506,12 +1519,19 @@ btnSubmitJoinRoom.addEventListener('click', () => {
       socket.once('connect', performJoin);
     } else {
       clearTimeout(timeout);
-      btnSubmitJoinRoom.disabled = false;
-      btnSubmitJoinRoom.innerHTML = origHTML;
+      if (activeBtn) {
+        activeBtn.disabled = false;
+        activeBtn.innerHTML = origHTML;
+      }
       showToast('Could not establish connection to cloud server.', 'error');
     }
   }
-});
+}
+
+btnSubmitJoinRoom.addEventListener('click', () => joinRoomAction(false));
+if (btnSubmitJoinSpectator) {
+  btnSubmitJoinSpectator.addEventListener('click', () => joinRoomAction(true));
+}
 
 // Copy Room Code
 btnCopyCode.addEventListener('click', () => {
@@ -1950,11 +1970,24 @@ function updateAuctionView(room) {
   const role = (player.role || 'Batter').trim();
   const roleUpper = role.toUpperCase();
 
-  // Reset active lot bid history on new player lot
+  // Reset active lot bid history and fold state on new player lot
   if (player.id !== lastLotPlayerId) {
     lastLotPlayerId = player.id;
     activeLotBidHistory = [];
     renderRecentBidsFeed();
+
+    // Clear folds on lot change
+    if (currentRoom) {
+      currentRoom.foldedTeams = Array.isArray(room.foldedTeams) ? [...room.foldedTeams] : [];
+    }
+    if (myTeam) {
+      myTeam.isFolded = false;
+    }
+    if (btnFoldPlayer) {
+      btnFoldPlayer.disabled = false;
+      if (foldButtonText) foldButtonText.textContent = 'FOLD';
+      btnFoldPlayer.classList.remove('opacity-40', 'border-emerald-500/50', 'text-emerald-400', 'border-cyan-500/50', 'text-cyan-400');
+    }
   }
 
   if (playerSoldWatermark) playerSoldWatermark.classList.add('hidden');
@@ -2222,16 +2255,9 @@ function updateBidButton() {
 
   if (isHighestBidder) {
     btnPlaceBid.disabled = true;
-    btnPlaceBid.classList.remove('from-amber-500', 'to-amber-400');
+    btnPlaceBid.classList.remove('from-amber-500', 'to-amber-400', 'from-amber-600', 'to-amber-500');
     btnPlaceBid.classList.add('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
     bidButtonText.innerHTML = `<span>✅ HIGHEST BIDDER</span>`;
-  } else if (hasFolded) {
-    // Rule 1: Once a team folds on this player, they CANNOT bid on this player again
-    btnPlaceBid.disabled = true;
-    btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
-    btnPlaceBid.classList.add('from-slate-700', 'to-slate-800', 'opacity-50');
-    bidStatusNotice.textContent = 'You have folded for this player and cannot bid again';
-    bidStatusNotice.classList.remove('hidden');
   } else if (cannotBidReason) {
     btnPlaceBid.disabled = true;
     btnPlaceBid.classList.remove('from-slate-700', 'to-slate-800', 'opacity-50');
@@ -2239,10 +2265,17 @@ function updateBidButton() {
     bidStatusNotice.classList.remove('hidden');
   } else if (isBidCooldown) {
     btnPlaceBid.disabled = true;
+  } else if (hasFolded) {
+    // Dynamic Re-entry: Allow placing bid to re-enter
+    btnPlaceBid.disabled = false;
+    btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
+    btnPlaceBid.classList.add('from-amber-600', 'to-amber-500');
+    bidStatusNotice.textContent = 'You passed on this player. Tap BID or UNFOLD to re-enter!';
+    bidStatusNotice.classList.remove('hidden');
   } else {
     // Eligible to bid
     btnPlaceBid.disabled = false;
-    btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'from-slate-700', 'to-slate-800', 'opacity-50', 'text-slate-950', 'ring-2', 'ring-emerald-400');
+    btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'from-slate-700', 'to-slate-800', 'from-amber-600', 'to-amber-500', 'opacity-50', 'text-slate-950', 'ring-2', 'ring-emerald-400');
     btnPlaceBid.classList.add('from-amber-500', 'to-amber-400');
     if (isSoloTesting && currentRoom.highestBidder) {
       const incLabel = inc >= 10000000 ? `+₹${(inc / 10000000).toFixed(2)} Cr` : `+${(inc / 100000).toFixed(0)}L`;
@@ -2250,28 +2283,28 @@ function updateBidButton() {
     }
   }
 
-  // Update Fold button state (Rule 1: If folded, remains FOLDED for this player)
+  // Update Fold button state (Rule 1 & 2: Supports dynamic toggle un-fold)
   if (!myTeam || !currentRoom || !currentRoom.currentPlayer) {
     btnFoldPlayer.disabled = true;
   } else if (isHighestBidder) {
     btnFoldPlayer.disabled = true;
     foldButtonText.textContent = 'LEADING';
     btnFoldPlayer.classList.add('opacity-40');
-    btnFoldPlayer.classList.remove('border-emerald-500/50', 'text-emerald-400');
+    btnFoldPlayer.classList.remove('border-emerald-500/50', 'text-emerald-400', 'border-cyan-500/50', 'text-cyan-400');
     btnFoldPlayer.title = 'Highest bidder cannot fold against their own bid!';
   } else {
-    btnFoldPlayer.title = 'Pass / Fold on this player';
     const foldedList = currentRoom.foldedTeams || [];
     const hasFolded = foldedList.includes(myTeam.franchiseId);
+    btnFoldPlayer.disabled = false;
     if (hasFolded) {
-      btnFoldPlayer.disabled = true;
-      foldButtonText.textContent = 'FOLDED ✓';
-      btnFoldPlayer.classList.remove('opacity-40');
-      btnFoldPlayer.classList.add('border-emerald-500/50', 'text-emerald-400');
-    } else {
-      btnFoldPlayer.disabled = false;
-      foldButtonText.textContent = 'FOLD';
+      foldButtonText.textContent = 'UNFOLD ↩️';
       btnFoldPlayer.classList.remove('opacity-40', 'border-emerald-500/50', 'text-emerald-400');
+      btnFoldPlayer.classList.add('border-cyan-500/50', 'text-cyan-400');
+      btnFoldPlayer.title = 'Click to un-fold and re-enter bidding for this player';
+    } else {
+      foldButtonText.textContent = 'FOLD';
+      btnFoldPlayer.classList.remove('opacity-40', 'border-emerald-500/50', 'text-emerald-400', 'border-cyan-500/50', 'text-cyan-400');
+      btnFoldPlayer.title = 'Pass / Fold on this player';
     }
   }
 
@@ -2290,7 +2323,7 @@ function updateBidButton() {
   }
 }
 
-// FOLD BUTTON CLICK HANDLER
+// FOLD BUTTON CLICK HANDLER (Toggle Fold / Un-fold)
 btnFoldPlayer.addEventListener('click', () => {
   if (!currentRoom || !currentRoom.currentPlayer || !myTeam) return;
 
@@ -2300,23 +2333,24 @@ btnFoldPlayer.addEventListener('click', () => {
     return;
   }
 
-  const foldedList = currentRoom.foldedTeams || [];
-  if (foldedList.includes(myTeam.franchiseId)) {
-    showToast('You have already folded on this player.', 'info');
-    return;
-  }
-
   socket.emit('team_fold', {}, (res) => {
     if (res && res.success) {
-      playBeep(320, 'sine', 0.15);
-      showToast('You folded on this player!', 'info');
+      playBeep(res.folded ? 320 : 480, 'sine', 0.15);
       if (!currentRoom.foldedTeams) currentRoom.foldedTeams = [];
-      if (!currentRoom.foldedTeams.includes(myTeam.franchiseId)) {
-        currentRoom.foldedTeams.push(myTeam.franchiseId);
+      if (res.folded) {
+        showToast('You passed on this player!', 'info');
+        if (!currentRoom.foldedTeams.includes(myTeam.franchiseId)) {
+          currentRoom.foldedTeams.push(myTeam.franchiseId);
+        }
+        myTeam.isFolded = true;
+      } else {
+        showToast('You un-folded! You are back in the bidding.', 'success');
+        currentRoom.foldedTeams = currentRoom.foldedTeams.filter(id => id !== myTeam.franchiseId);
+        myTeam.isFolded = false;
       }
       updateBidButton();
     } else {
-      showToast(res ? res.error : 'Cannot fold right now', 'warning');
+      showToast(res ? res.error : 'Cannot toggle fold right now', 'warning');
     }
   });
 });
@@ -2330,6 +2364,12 @@ btnPlaceBid.addEventListener('click', () => {
   // Tactile micro-shake on physical press
   triggerScreenMicroShake();
 
+  // Pre-emptively clear fold state if user was folded (dynamic re-entry)
+  if (myTeam) myTeam.isFolded = false;
+  if (currentRoom && currentRoom.foldedTeams) {
+    currentRoom.foldedTeams = currentRoom.foldedTeams.filter(id => id !== (myTeam ? myTeam.franchiseId : ''));
+  }
+
   isBidCooldown = true;
   btnPlaceBid.disabled = true;
   setTimeout(() => {
@@ -2340,6 +2380,10 @@ btnPlaceBid.addEventListener('click', () => {
   socket.emit('place_bid', { expectedCurrentBid }, (res) => {
     isBidCooldown = false;
     if (res && res.success) {
+      if (myTeam) myTeam.isFolded = false;
+      if (currentRoom && currentRoom.foldedTeams) {
+        currentRoom.foldedTeams = currentRoom.foldedTeams.filter(id => id !== (myTeam ? myTeam.franchiseId : ''));
+      }
       playBidSound();
       updateBidButton();
     } else {
@@ -2810,6 +2854,50 @@ function setupManagerUI() {
   }
   updateUserFranchisePill();
 }
+
+function updateSpectatorButtonLabels() {
+  const isSpec = (currentRole === 'spectator');
+  const modalBtn = document.getElementById('btnToggleSpectatorModal');
+  const modalDesc = document.getElementById('modalRoleDesc');
+  const lobbyBtnText = document.getElementById('btnSwitchToSpectatorLobbyText');
+  const desktopBtnText = document.getElementById('desktopSpectatorBtnText');
+  const mobileBtnText = document.getElementById('mobileSpectatorBtnText');
+
+  if (modalBtn) modalBtn.textContent = isSpec ? 'Switch to Manager' : 'Switch to Spectator';
+  if (modalDesc) modalDesc.textContent = isSpec ? 'Current: Spectator' : 'Current: Manager';
+  if (lobbyBtnText) lobbyBtnText.textContent = isSpec ? 'Claim Franchise' : 'Watch as Spectator';
+  if (desktopBtnText) desktopBtnText.textContent = isSpec ? 'Manage' : 'Spectate';
+  if (mobileBtnText) mobileBtnText.textContent = isSpec ? 'Manage' : 'Spectator';
+}
+
+function switchUserRole(targetRole) {
+  if (!currentRoom) return;
+  const newRole = targetRole || (currentRole === 'spectator' ? 'manager' : 'spectator');
+  socket.emit('switch_role', { role: newRole }, (res) => {
+    if (res && res.success) {
+      currentRole = res.role;
+      showToast(`Switched to ${currentRole === 'spectator' ? 'Spectator Mode 👓' : 'Manager Mode 🔨'}!`, 'info');
+      if (currentRole === 'spectator') {
+        setupSpectatorUI();
+      } else {
+        setupManagerUI();
+      }
+      updateSpectatorButtonLabels();
+    } else {
+      showToast(res ? res.error : 'Failed to switch role', 'error');
+    }
+  });
+}
+
+// Wire spectator role switch buttons
+[btnSwitchToSpectatorLobby, btnToggleSpectatorAuction, btnToggleSpectatorDesktop, btnToggleSpectatorModal].forEach(btn => {
+  if (btn) {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchUserRole();
+    });
+  }
+});
 
 function renderAllegiancePicker() {
   if (!allegiancePickerBar) return;
@@ -3339,7 +3427,7 @@ function registerSocketAuctionListeners(s) {
     }
   });
 
-  s.on('bid_accepted', ({ currentBid, highestBidder }) => {
+  s.on('bid_accepted', ({ currentBid, highestBidder, foldedTeams }) => {
     const prevBid = currentRoom ? currentRoom.currentBid : 0;
     const bidDiff = prevBid > 0 ? (currentBid - prevBid) : currentBid;
 
@@ -3347,6 +3435,10 @@ function registerSocketAuctionListeners(s) {
       currentRoom.currentBid = currentBid;
       currentRoom.highestBidder = highestBidder;
       currentRoom.isTimerRunning = true;
+      currentRoom.foldedTeams = Array.isArray(foldedTeams) ? foldedTeams : [];
+    }
+    if (myTeam) {
+      myTeam.isFolded = false;
     }
 
     if (highestBidder) {
@@ -3422,6 +3514,13 @@ function registerSocketAuctionListeners(s) {
     if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
     if (biddingWarBanner) biddingWarBanner.classList.add('hidden');
 
+    // Clear folds immediately for upcoming lot transition
+    if (currentRoom) currentRoom.foldedTeams = [];
+    if (myTeam) myTeam.isFolded = false;
+    btnFoldPlayer.disabled = true;
+    foldButtonText.textContent = 'LOT ENDED';
+    updateBidButton();
+
     playerSoldWatermark.classList.remove('hidden');
     playerSoldWatermark.classList.add('stamp-sold-anim');
 
@@ -3443,6 +3542,13 @@ function registerSocketAuctionListeners(s) {
     if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
     if (biddingWarBanner) biddingWarBanner.classList.add('hidden');
 
+    // Clear folds immediately for upcoming lot transition
+    if (currentRoom) currentRoom.foldedTeams = [];
+    if (myTeam) myTeam.isFolded = false;
+    btnFoldPlayer.disabled = true;
+    foldButtonText.textContent = 'LOT ENDED';
+    updateBidButton();
+
     playerUnsoldWatermark.classList.remove('hidden');
     playerUnsoldWatermark.classList.add('stamp-sold-anim');
     speakCommentary(`No bids received. ${player.name} goes unsold.`);
@@ -3456,6 +3562,13 @@ function registerSocketAuctionListeners(s) {
     triggerScreenMicroShake();
     if (panicScreenVignette) panicScreenVignette.classList.add('hidden');
     if (biddingWarBanner) biddingWarBanner.classList.add('hidden');
+
+    // Clear folds immediately for upcoming lot transition
+    if (currentRoom) currentRoom.foldedTeams = [];
+    if (myTeam) myTeam.isFolded = false;
+    btnFoldPlayer.disabled = true;
+    foldButtonText.textContent = 'LOT ENDED';
+    updateBidButton();
 
     if (highestBidder) {
       speakCommentary(`All remaining teams have folded! ${player.name} is sold early to ${highestBidder.teamName}!`);
