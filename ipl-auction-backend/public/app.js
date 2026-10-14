@@ -319,7 +319,42 @@ document.addEventListener('click', (e) => {
     closeSettingsModal();
     const dropdown = document.getElementById('settingsDropdown');
     if (dropdown) dropdown.classList.add('hidden');
+    if (currentViewState === 'auction') {
+      openConfirmExitModal(() => {
+        if (currentRoom) removeActiveSession(currentRoom.code);
+        performSessionCleanupBeforeNewMatch();
+        navigate('home', null, true);
+        showToast('Left match. Returned to Home.', 'info');
+      });
+      return;
+    }
     if (confirm('Leave current room and return to Home Gateway?')) {
+      if (currentRoom) removeActiveSession(currentRoom.code);
+      performSessionCleanupBeforeNewMatch();
+      navigate('home', null, true);
+      showToast('Left match. Returned to Home.', 'info');
+    }
+    return;
+  }
+
+  // Confirm Exit Auction Modal: Stay Action
+  const stayAuctionBtn = e.target.closest('#btn-confirm-stay-auction');
+  if (stayAuctionBtn) {
+    e.preventDefault();
+    closeConfirmExitModal();
+    showToast('Staying in live auction 🛡️', 'info');
+    return;
+  }
+
+  // Confirm Exit Auction Modal: Leave Action
+  const leaveAuctionBtn = e.target.closest('#btn-confirm-leave-auction');
+  if (leaveAuctionBtn) {
+    e.preventDefault();
+    const action = pendingExitCallback;
+    closeConfirmExitModal();
+    if (action) {
+      action();
+    } else {
       if (currentRoom) removeActiveSession(currentRoom.code);
       performSessionCleanupBeforeNewMatch();
       navigate('home', null, true);
@@ -357,6 +392,29 @@ document.addEventListener('click', (e) => {
     return;
   }
 });
+
+// Confirmation Popup Helper for Live Auction Exit
+let pendingExitCallback = null;
+
+function openConfirmExitModal(onConfirm) {
+  pendingExitCallback = onConfirm;
+  const modal = document.getElementById('modal-confirm-exit');
+  if (modal) {
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    modal.classList.add('flex');
+  }
+}
+
+function closeConfirmExitModal() {
+  pendingExitCallback = null;
+  const modal = document.getElementById('modal-confirm-exit');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+    modal.classList.remove('flex');
+  }
+}
 
 // Sync initial UI state after DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
@@ -1201,6 +1259,19 @@ function switchView(viewName) {
 
 // Browser Back / Forward Button Popstate Listener
 window.addEventListener('popstate', (e) => {
+  if (currentViewState === 'auction' && currentRoom && currentRoom.status === 'AUCTION') {
+    try {
+      history.pushState({ view: 'auction', roomCode: currentRoom.code }, '', window.location.href);
+    } catch (err) {}
+    openConfirmExitModal(() => {
+      if (currentRoom) removeActiveSession(currentRoom.code);
+      performSessionCleanupBeforeNewMatch();
+      navigate('home', null, true);
+      showToast('Left match. Returned to Home.', 'info');
+    });
+    return;
+  }
+
   const state = e.state;
   let view = state && state.view;
   let roomCode = state && state.roomCode;
@@ -1218,6 +1289,15 @@ window.addEventListener('popstate', (e) => {
   }
 
   showView(view, roomCode);
+});
+
+// Browser tab close / reload protection during live auction
+window.addEventListener('beforeunload', (e) => {
+  if (currentViewState === 'auction' && currentRoom && currentRoom.status === 'AUCTION') {
+    e.preventDefault();
+    e.returnValue = 'Are you sure you want to leave the live auction room?';
+    return e.returnValue;
+  }
 });
 
 // Non-Intrusive Centered Toast Notifications with 2.5s Deduplication
@@ -2014,32 +2094,37 @@ function updateAuctionView(room) {
     if (leadingBidderDot) leadingBidderDot.className = 'w-2 h-2 rounded-full bg-slate-500 inline-block';
   }
 
-  // 9. Synchronize Mobile & Desktop Headers
-  const franchiseId = myTeam ? myTeam.franchiseId : 'CSK';
-  const purseText = myTeam ? formatCurrency(myTeam.purse) : 'Live';
-  const logoSrc = `/logos/${franchiseId}.svg`;
+  // 9. Synchronize Mobile & Desktop Headers & Spectator Mode
+  const isSpectator = (currentRole === 'spectator' || !myTeam);
+  if (isSpectator) {
+    setupSpectatorUI();
+  } else {
+    setupManagerUI();
+    const franchiseId = myTeam ? myTeam.franchiseId : 'CSK';
+    const purseText = myTeam ? formatCurrency(myTeam.purse) : 'Live';
+    const logoSrc = `/logos/${franchiseId}.svg`;
 
-  const headerTeamBadge = document.getElementById('header-team-badge');
-  const headerPurseVal = document.getElementById('header-purse-val');
+    const headerTeamBadge = document.getElementById('header-team-badge');
+    const headerPurseVal = document.getElementById('header-purse-val');
+    const headerTeamLogo = document.getElementById('header-team-logo');
+
+    const desktopTeamBadge = document.getElementById('desktop-team-badge');
+    const desktopPurseVal = document.getElementById('desktop-purse-val');
+    const desktopTeamLogo = document.getElementById('desktop-team-logo');
+
+    if (headerTeamBadge) headerTeamBadge.textContent = franchiseId;
+    if (headerPurseVal) headerPurseVal.textContent = purseText;
+    if (headerTeamLogo) headerTeamLogo.src = logoSrc;
+
+    if (desktopTeamBadge) desktopTeamBadge.textContent = franchiseId;
+    if (desktopPurseVal) desktopPurseVal.textContent = purseText;
+    if (desktopTeamLogo) desktopTeamLogo.src = logoSrc;
+  }
+
   const headerRoomCode = document.getElementById('header-room-code');
-  const headerTeamLogo = document.getElementById('header-team-logo');
-
-  const desktopTeamBadge = document.getElementById('desktop-team-badge');
-  const desktopPurseVal = document.getElementById('desktop-purse-val');
   const desktopRoomCode = document.getElementById('desktop-room-code');
-  const desktopTeamLogo = document.getElementById('desktop-team-logo');
-  const desktopSquad = document.getElementById('desktop-squad');
-  const desktopPurse = document.getElementById('desktop-purse');
-
-  if (headerTeamBadge) headerTeamBadge.textContent = franchiseId;
-  if (headerPurseVal) headerPurseVal.textContent = purseText;
   if (headerRoomCode && room.code) headerRoomCode.textContent = `#${room.code}`;
-  if (headerTeamLogo) headerTeamLogo.src = logoSrc;
-
-  if (desktopTeamBadge) desktopTeamBadge.textContent = franchiseId;
-  if (desktopPurseVal) desktopPurseVal.textContent = purseText;
   if (desktopRoomCode && room.code) desktopRoomCode.textContent = `#${room.code}`;
-  if (desktopTeamLogo) desktopTeamLogo.src = logoSrc;
 
   const squadCount = myTeam ? (myTeam.squadCount || (myTeam.squad ? myTeam.squad.length : 0)) : 0;
   const maxSquad = (room.settings && room.settings.maxSquadSize) || 25;
@@ -2126,7 +2211,10 @@ function updateBidButton() {
   }
 
   // Configure Bid Button State
-  const isHighestBidder = currentRoom && currentRoom.highestBidder && myTeam && 
+  const totalTeams = (currentRoom && currentRoom.teams) ? currentRoom.teams.length : 0;
+  const isSoloTesting = totalTeams <= 1;
+
+  const isHighestBidder = !isSoloTesting && currentRoom && currentRoom.highestBidder && myTeam && 
     (currentRoom.highestBidder.socketId === (socket ? socket.id : null) || currentRoom.highestBidder.teamId === myTeam.franchiseId);
 
   const foldedList = (currentRoom && currentRoom.foldedTeams) || [];
@@ -2156,6 +2244,10 @@ function updateBidButton() {
     btnPlaceBid.disabled = false;
     btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'from-slate-700', 'to-slate-800', 'opacity-50', 'text-slate-950', 'ring-2', 'ring-emerald-400');
     btnPlaceBid.classList.add('from-amber-500', 'to-amber-400');
+    if (isSoloTesting && currentRoom.highestBidder) {
+      const incLabel = inc >= 10000000 ? `+₹${(inc / 10000000).toFixed(2)} Cr` : `+${(inc / 100000).toFixed(0)}L`;
+      bidButtonText.innerHTML = `<span>🔨 RAISE BID ${formatCurrency(nextAmount)}</span> <span class="text-xs font-mono font-bold opacity-80">(${incLabel})</span>`;
+    }
   }
 
   // Update Fold button state (Rule 1: If folded, remains FOLDED for this player)
@@ -2243,17 +2335,20 @@ btnPlaceBid.addEventListener('click', () => {
   setTimeout(() => {
     isBidCooldown = false;
     updateBidButton();
-  }, 500);
+  }, 400);
 
   socket.emit('place_bid', { expectedCurrentBid }, (res) => {
+    isBidCooldown = false;
     if (res && res.success) {
       playBidSound();
+      updateBidButton();
     } else {
       playBeep(200, 'sawtooth', 0.25);
       showToast(res ? res.error : 'Bid was rejected', 'error');
-      if (res && res.serverCurrentBid !== undefined) {
-        currentRoom.currentBid = res.serverCurrentBid;
-        currentBidAmount.textContent = formatCurrency(res.serverCurrentBid);
+      const updatedPrice = res ? (res.serverCurrentBid !== undefined ? res.serverCurrentBid : res.currentBid) : null;
+      if (updatedPrice !== null && updatedPrice !== undefined) {
+        currentRoom.currentBid = updatedPrice;
+        currentBidAmount.textContent = formatCurrency(updatedPrice);
       }
       updateBidButton();
     }
@@ -2670,16 +2765,25 @@ const allegiancePickerBar = document.getElementById('allegiancePickerBar');
 const cheerReactionContainer = document.getElementById('cheerReactionContainer');
 
 function setupSpectatorUI() {
-  if (managerActionDock) managerActionDock.classList.add('hidden');
-  if (spectatorFanDeck) {
-    spectatorFanDeck.classList.remove('hidden');
-    spectatorFanDeck.classList.add('flex');
+  const mDock = document.getElementById('manager-dock-controls');
+  const sDeck = document.getElementById('spectator-dock-controls');
+  if (mDock) mDock.classList.add('hidden');
+  if (sDeck) {
+    sDeck.classList.remove('hidden');
+    sDeck.classList.add('flex');
   }
 
   const headerTeamBadge = document.getElementById('header-team-badge');
   const headerPurseVal = document.getElementById('header-purse-val');
   if (headerTeamBadge) headerTeamBadge.textContent = 'FAN';
   if (headerPurseVal) headerPurseVal.textContent = 'Spectator';
+
+  const desktopTeamBadge = document.getElementById('desktop-team-badge');
+  const desktopPurseVal = document.getElementById('desktop-purse-val');
+  const desktopTeamLogo = document.getElementById('desktop-team-logo');
+  if (desktopTeamBadge) desktopTeamBadge.textContent = 'SPECTATOR';
+  if (desktopPurseVal) desktopPurseVal.textContent = 'Fan Deck';
+  if (desktopTeamLogo) desktopTeamLogo.src = '/icons/player_avatar.svg';
 
   if (userFranchisePill) {
     userFranchisePill.classList.remove('hidden');
@@ -2694,13 +2798,15 @@ function setupSpectatorUI() {
 }
 
 function setupManagerUI() {
-  if (spectatorFanDeck) {
-    spectatorFanDeck.classList.add('hidden');
-    spectatorFanDeck.classList.remove('flex');
+  const mDock = document.getElementById('manager-dock-controls');
+  const sDeck = document.getElementById('spectator-dock-controls');
+  if (sDeck) {
+    sDeck.classList.add('hidden');
+    sDeck.classList.remove('flex');
   }
-  if (managerActionDock) {
-    managerActionDock.classList.remove('hidden');
-    managerActionDock.classList.add('flex');
+  if (mDock) {
+    mDock.classList.remove('hidden');
+    mDock.classList.add('flex');
   }
   updateUserFranchisePill();
 }
