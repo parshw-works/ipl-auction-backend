@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>IPL Mega Auction Simulator | Esports Broadcast Arena</title>
+  
+  <!-- Cache Prevention Meta -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <!-- Preconnects & Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.socket.io" crossorigin />
+  <link rel="dns-prefetch" href="https://ipl-auction-backend-83zt.onrender.com" />
+
+  <!-- PWA Meta -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#FFB800" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            arenaVoid: '#05070E',
+            arenaCard: '#0D1324',
+            arenaElevated: '#121A32',
+            champGold: '#FFB800',
+            champGoldDark: '#FF8A00',
+            laserCyan: '#00F5FF',
+            laserCrimson: '#FF1E56',
+            victoryEmerald: '#00FFA3'
+          },
+          fontFamily: {
+            display: ['Rajdhani', 'Orbitron', 'sans-serif'],
+            mono: ['"Space Mono"', 'monospace'],
+            sans: ['Inter', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="/styles.css?v=30.0" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <!-- Reliable Socket.IO Client with Fallback -->
+  <script src="/socket.io.min.js"></script>
+  <script>
+    if (typeof io === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
+      document.head.appendChild(s);
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+</head>
+<body class="bg-arenaVoid text-slate-100 min-h-screen flex flex-col font-sans overflow-x-hidden selection:bg-amber-400 selection:text-slate-950">
+
+  <!-- 3D Stadium Atmosphere & Perspective Grid Canvas -->
+  <div class="arena-background"></div>
+  <div id="franchiseAuraLayer"></div>
+
+  <!-- Critical Timer Panic Screen Edge (Activated when timer <= 3s) -->
+  <div id="panicScreenVignette" class="panic-screen-edge hidden"></div>
+
+  <!-- TOP BROADCAST HEADER HUD (CONTEXT-AWARE & STREAMLINED) -->
+  <header class="bg-[#080d1e]/95 border-b border-white/10 backdrop-blur-xl sticky top-0 z-30 px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between shadow-2xl relative">
+    <!-- Left: Tournament Identity / Room Code -->
+    <div class="flex items-center space-x-2.5 sm:space-x-3">
+      <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-md flex items-center justify-center flex-shrink-0">
+        <div class="w-full h-full bg-[#0d1324] rounded-[10px] flex items-center justify-center">
+          <i class="fa-solid fa-gavel text-amber-400 text-xs sm:text-sm"></i>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-sm sm:text-base font-black tracking-wider font-display uppercase gold-foil-text whitespace-nowrap">
+            IPL AUCTION
+          </h1>
+          <div id="roomBadge" class="hidden text-xs text-slate-300 font-mono items-center space-x-1 bg-[#05070e] px-2 py-0.5 rounded-lg border border-white/10 cursor-pointer" title="Click to copy code">
+            <span id="currentRoomCode" class="text-laserCyan font-bold tracking-widest">-----</span>
+            <i class="fa-regular fa-copy text-[10px] text-slate-400"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: Live Franchise Badge & Remaining Purse (Auction view only) -->
+    <div id="userFranchisePill" class="hidden items-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3 py-1 rounded-xl bg-[#0e172e] border border-amber-500/40 text-xs font-semibold shadow-lg shadow-amber-500/10 cursor-pointer active:scale-95 transition" title="Inspect your squad">
+      <img id="userFranchiseLogo" src="/logos/CSK.svg" alt="Team" class="w-4 h-4 sm:w-5 sm:h-5 object-contain" />
+      <span id="userFranchiseTag" class="text-amber-400 font-black font-display tracking-wider text-xs sm:text-sm">CSK</span>
+      <span class="text-slate-600">•</span>
+      <span id="userPurseDisplay" class="text-victoryEmerald font-mono font-bold text-xs sm:text-sm">₹100 Cr</span>
+    </div>
+
+    <!-- Right: Context Controls -->
+    <div class="flex items-center space-x-1.5 sm:space-x-2">
+      <!-- Lobby Player Count Badge (Only visible in Lobby) -->
+      <div id="lobbyPlayerCountBadge" class="hidden text-[11px] font-mono px-2 py-1 rounded-xl bg-[#0e172e] border border-white/10 text-slate-300 items-center gap-1">
+        <i class="fa-solid fa-users text-amber-400 text-xs"></i>
+        <span id="lobbyPlayerCountText">0/10</span>
+      </div>
+
+      <!-- Quick Audio Mute Toggle (Universal) -->
+      <button id="toggleVoiceBtn" title="Voice Commentator" class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#0e172e] hover:bg-[#162347] text-amber-400 text-xs border border-white/10 flex items-center justify-center transition active:scale-95 cursor-pointer">
+        <i id="voiceIcon" class="fa-solid fa-volume-high text-xs"></i>
+      </button>
+
+      <!-- Standings Drawer Toggle (Auction & Lobby) -->
+      <button id="toggleDrawerBtn" class="hidden px-2 sm:px-3 py-1.5 rounded-xl bg-[#0e172e] hover:bg-[#162347] text-slate-300 text-xs font-medium border border-white/10 transition items-center space-x-1 sm:space-x-1.5 active:scale-95 cursor-pointer flex-shrink-0">
+        <i class="fa-solid fa-trophy text-amber-400 text-xs"></i>
+        <span class="font-display uppercase font-bold tracking-wider text-[11px] sm:text-xs">Standings</span>
+        <span id="teamsCountBadge" class="bg-amber-400 text-slate-950 px-1 py-0.2 rounded font-black text-[9px] sm:text-[10px]">0</span>
+      </button>
+
+      <!-- Settings Dropdown Button -->
+      <div class="relative">
+        <button id="btnSettingsMenu" title="Game Settings" class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#0e172e] hover:bg-[#162347] text-slate-300 text-xs border border-white/10 flex items-center justify-center transition active:scale-95 cursor-pointer">
+          <i class="fa-solid fa-gear text-xs"></i>
+        </button>
+
+        <!-- Settings Dropdown Popover -->
+        <div id="settingsDropdown" class="hidden absolute right-0 mt-2 w-56 rounded-2xl bg-[#0d1324] border border-white/15 p-2 shadow-2xl z-50 space-y-1 text-xs">
+          <div class="px-2.5 py-1.5 border-b border-white/10 flex items-center justify-between text-[11px] font-display font-bold uppercase tracking-wider text-slate-400">
+            <span>Audio & HUD</span>
+            <span id="serverStatusDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          </div>
+
+          <button id="btnCheerToggle" class="w-full px-2.5 py-2 rounded-xl text-left text-slate-200 hover:bg-white/5 flex items-center justify-between transition cursor-pointer">
+            <span class="flex items-center gap-2">
+              <i id="cheerToggleIcon" class="fa-solid fa-bullhorn text-laserCyan text-xs"></i>
+              <span>Spectator Cheers</span>
+            </span>
+            <span id="cheerToggleText" class="text-[10px] font-mono text-laserCyan font-bold">ON</span>
+          </button>
+
+          <button id="btnToggleSFX" class="w-full px-2.5 py-2 rounded-xl text-left text-slate-200 hover:bg-white/5 flex items-center justify-between transition cursor-pointer">
+            <span class="flex items-center gap-2">
+              <i class="fa-solid fa-bell text-amber-400 text-xs"></i>
+              <span>Sound Effects</span>
+            </span>
+            <span id="sfxToggleText" class="text-[10px] font-mono text-emerald-400 font-bold">ON</span>
+          </button>
+
+          <button id="toggleLogsBtn" class="w-full px-2.5 py-2 rounded-xl text-left text-slate-200 hover:bg-white/5 flex items-center justify-between transition cursor-pointer">
+            <span class="flex items-center gap-2">
+              <i class="fa-solid fa-timeline text-laserCyan text-xs"></i>
+              <span>Event Feed</span>
+            </span>
+            <i class="fa-solid fa-chevron-right text-[10px] text-slate-500"></i>
+          </button>
+
+          <div class="pt-1 border-t border-white/10">
+            <button id="btnLeaveRoomHeader" class="w-full px-2.5 py-1.5 rounded-xl text-left text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition cursor-pointer text-xs font-semibold">
+              <i class="fa-solid fa-arrow-right-from-bracket text-xs"></i>
+              <span>Leave Room</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWPORT CONTAINER -->
+  <main class="flex-1 flex flex-col max-w-7xl w-full mx-auto p-3 sm:p-5 relative z-10">
+    
+    <!-- TOAST NOTIFICATIONS (NON-INTRUSIVE TOP-CENTERED MICRO-PILL) -->
+    <div id="toastContainer" class="fixed top-2.5 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none flex flex-col items-center max-w-[92vw] sm:max-w-md w-auto"></div>
+
+    <!-- RECONNECT / SESSION RESTORED BANNER -->
+    <div id="sessionRestoreBanner" class="hidden mb-3 p-3 rounded-2xl bg-gradient-to-r from-emerald-950/90 to-[#0e172e] border border-victoryEmerald/50 shadow-xl flex items-center justify-between text-xs">
+      <div class="flex items-center space-x-2.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-victoryEmerald animate-ping"></span>
+        <span class="font-display font-black uppercase tracking-wider text-victoryEmerald">SESSION RESTORED:</span>
+        <span id="sessionRestoreDetails" class="text-slate-300 font-mono">Restoring War Room...</span>
+      </div>
+      <button id="btnDismissRestore" class="text-slate-400 hover:text-white px-2 py-1 rounded-lg text-xs font-display uppercase font-bold">
+        ✕
+      </button>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 1: WELCOME / ROOM GATEWAY (WAR ROOM PORTAL)                          -->
+    <!-- ========================================================================= -->
+    <div id="viewWelcome" class="flex-1 flex flex-col items-center justify-center py-6 text-center">
+      <div class="max-w-md w-full esport-panel-elevated p-6 sm:p-8 rounded-3xl border border-white/10 relative overflow-hidden backdrop-blur-2xl">
+        <!-- Ambient Top Accent Flare -->
+        <div class="absolute -top-16 -left-16 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none"></div>
+        <div class="absolute -bottom-16 -right-16 w-48 h-48 bg-laserCyan/20 rounded-full blur-3xl pointer-events-none"></div>
+
+        <!-- 3D Styled Golden Gavel Icon Resting on Velvet Pedestal -->
+        <div class="relative inline-block mb-3">
+          <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-amber-400/20 to-amber-600/10 border border-amber-400/30 flex items-center justify-center shadow-xl shadow-amber-500/20 mx-auto">
+            <span class="text-3xl sm:text-4xl filter drop-shadow">⚖️</span>
+          </div>
+        </div>
+
+        <h2 class="text-2xl sm:text-3xl font-black font-display tracking-wider uppercase mb-1 gold-foil-text">
+          IPL AUCTION SIMULATOR
+        </h2>
+        <p class="text-xs sm:text-sm text-slate-400 mb-4 font-sans">
+          BCCI Mega Auction Engine & Real-Time Multiplayer
+        </p>
+
+        <!-- YOUR ONGOING MATCHES (X/3) CONCURRENCY HUB -->
+        <div id="ongoingMatchesContainer" class="hidden w-full mb-4 text-left p-3 rounded-2xl bg-[#080d1e]/90 border border-amber-500/30 shadow-xl">
+          <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10">
+            <span class="text-xs font-black font-display uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <i class="fa-solid fa-gamepad"></i> Ongoing Matches (<span id="ongoingMatchesCount">0</span>/3)
+            </span>
+            <span class="text-[10px] text-slate-400 font-mono">Max 3 concurrent</span>
+          </div>
+          <div id="ongoingMatchesList" class="space-y-2">
+            <!-- Dynamically populated with active match cards -->
+          </div>
+        </div>
+
+        <!-- Manager Name Input -->
+        <div class="text-left mb-4">
+          <label class="block text-xs font-bold font-display uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between">
+            <span>Manager Handle</span>
+            <span class="text-[10px] text-amber-400 font-mono">YOUR ALIAS</span>
+          </label>
+          <div class="relative">
+            <input 
+              type="text" 
+              id="inputManagerName" 
+              placeholder="e.g. Master Strategist" 
+              value="Player 1"
+              class="w-full bg-[#080d1e] border border-white/15 rounded-xl px-4 py-3 text-sm text-white font-semibold focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition placeholder-slate-600 shadow-inner" 
+            />
+            <i class="fa-solid fa-user-tie absolute right-3.5 top-3.5 text-slate-500 text-sm"></i>
+          </div>
+        </div>
+
+        <!-- Tactile Mode Selector Tabs -->
+        <div class="grid grid-cols-2 gap-3 mb-4 p-1 bg-[#070b18] rounded-2xl border border-white/10">
+          <button id="btnTabCreate" class="py-2.5 rounded-xl font-black font-display text-xs uppercase tracking-wider transition bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 shadow-lg shadow-amber-500/25 active:scale-95 cursor-pointer">
+            Create Lobby
+          </button>
+          <button id="btnTabJoin" class="py-2.5 rounded-xl font-bold font-display text-xs uppercase tracking-wider transition text-slate-400 hover:text-white hover:bg-white/5 active:scale-95 cursor-pointer">
+            Join Lobby
+          </button>
+        </div>
+
+        <!-- Create Room Subform -->
+        <div id="formCreateRoom" class="space-y-3.5 text-left">
+          <!-- Collapsible Rules Accordion for Clean View -->
+          <details id="rulesAccordion" class="group bg-[#080d1e]/80 rounded-2xl border border-white/10 p-3 transition">
+            <summary class="flex items-center justify-between cursor-pointer list-none text-xs font-bold font-display uppercase tracking-wider text-slate-300 select-none">
+              <span class="flex items-center gap-2">
+                <i class="fa-solid fa-sliders text-amber-400 text-xs"></i>
+                <span>Match Rules (Optional Customization)</span>
+              </span>
+              <i class="fa-solid fa-chevron-down text-slate-500 text-xs transition-transform group-open:rotate-180"></i>
+            </summary>
+            
+            <div class="mt-3 pt-3 border-t border-white/10 space-y-3">
+              <div class="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-[10px] text-slate-400 font-bold font-display uppercase tracking-wider mb-1">Opening Purse</label>
+                  <select id="selectInitialPurse" class="w-full bg-[#05070e] border border-white/15 rounded-xl p-2 text-xs text-white font-mono focus:border-amber-400">
+                    <option value="1000000000" selected>₹100 Cr (Standard)</option>
+                    <option value="1200000000">₹120 Cr (Mega Pool)</option>
+                    <option value="900000000">₹90 Cr (Compact)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-400 font-bold font-display uppercase tracking-wider mb-1">Max Retentions</label>
+                  <select id="selectRetentionsAllowed" class="w-full bg-[#05070e] border border-white/15 rounded-xl p-2 text-xs text-white font-mono focus:border-amber-400">
+                    <option value="2" selected>2 Stars (Standard)</option>
+                    <option value="4">4 Stars (Elite)</option>
+                    <option value="1">1 Star</option>
+                    <option value="0">0 (Open Pool)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="block text-[9px] text-slate-400 font-bold font-display uppercase tracking-wider mb-1">Max Squad</label>
+                  <input id="inputMaxSquad" type="number" value="25" min="15" max="25" class="w-full bg-[#05070e] border border-white/15 rounded-xl p-2 text-xs text-white font-mono focus:border-amber-400" />
+                </div>
+                <div>
+                  <label class="block text-[9px] text-slate-400 font-bold font-display uppercase tracking-wider mb-1">Min Squad</label>
+                  <input id="inputMinSquad" type="number" value="15" min="10" max="25" class="w-full bg-[#05070e] border border-white/15 rounded-xl p-2 text-xs text-white font-mono focus:border-amber-400" />
+                </div>
+                <div>
+                  <label class="block text-[9px] text-slate-400 font-bold font-display uppercase tracking-wider mb-1">Overseas</label>
+                  <input id="inputMaxOverseas" type="number" value="8" min="4" max="8" class="w-full bg-[#05070e] border border-white/15 rounded-xl p-2 text-xs text-white font-mono focus:border-amber-400" />
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Launch Button (Immediate Reach Without Scrolling) -->
+          <button id="btnSubmitCreateRoom" class="shimmer-btn tactile-btn w-full min-h-[48px] py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 text-slate-950 font-black font-display rounded-2xl text-sm uppercase tracking-widest shadow-2xl shadow-amber-500/30 transition border-t border-white/40 cursor-pointer flex items-center justify-center gap-2">
+            <i class="fa-solid fa-bolt"></i>
+            <span>LAUNCH LOBBY</span>
+          </button>
+        </div>
+
+        <!-- Join Room Subform -->
+        <div id="formJoinRoom" class="hidden space-y-4 text-left">
+          <div>
+            <label class="block text-xs font-bold font-display uppercase tracking-wider text-slate-300 mb-1.5">Enter 5-Letter War Room Code</label>
+            <input 
+              type="text" 
+              id="inputJoinRoomCode" 
+              placeholder="e.g. 7X9KQ" 
+              maxlength="5"
+              class="w-full bg-[#080d1e] border border-laserCyan/40 rounded-2xl px-4 py-3.5 text-center text-2xl font-mono uppercase tracking-[0.3em] text-laserCyan focus:outline-none focus:border-laserCyan shadow-lg shadow-laserCyan/10" 
+            />
+          </div>
+          <button id="btnSubmitJoinRoom" class="shimmer-btn tactile-btn w-full py-4 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 hover:from-blue-500 hover:to-cyan-400 text-white font-black font-display rounded-2xl text-base uppercase tracking-widest shadow-2xl shadow-cyan-500/30 transition border-t border-white/30">
+            <i class="fa-solid fa-door-open mr-2"></i> ENTER WAR ROOM
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 2: LOBBY, FRANCHISE SELECTION & RETENTIONS                          -->
+    <!-- ========================================================================= -->
+    <div id="viewLobby" class="hidden flex-1 flex flex-col space-y-4 sm:space-y-5">
+      <!-- Match-Lock Guard Banner (Active if user navigates back to Lobby while match is live) -->
+      <div id="lobbyMatchLockBanner" class="hidden p-3.5 sm:p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-400 text-amber-300 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl">
+        <div class="flex items-center space-x-2.5 text-center sm:text-left">
+          <i class="fa-solid fa-triangle-exclamation text-amber-400 text-xl animate-pulse"></i>
+          <div>
+            <div class="font-display font-black text-sm uppercase tracking-wider text-white">Match is currently live in this room!</div>
+            <div class="text-xs text-amber-300/80 font-sans">Franchise selection and retention settings are locked.</div>
+          </div>
+        </div>
+        <button id="btnReturnToLiveAuction" class="shimmer-btn tactile-btn px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 text-slate-950 font-display font-black text-xs uppercase tracking-wider shadow-lg active:scale-95 transition">
+          RETURN TO LIVE AUCTION ➔
+        </button>
+      </div>
+
+      <!-- Room Info Header -->
+      <div class="esport-panel rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative overflow-hidden">
+        <div class="flex items-center space-x-3.5">
+          <div class="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-400/30 flex items-center justify-center flex-shrink-0">
+            <i class="fa-solid fa-satellite-dish text-amber-400 text-lg animate-pulse"></i>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-widest text-slate-400 font-display font-bold">WAR ROOM GATEWAY</div>
+            <div class="text-xl font-black font-display text-white flex items-center space-x-2">
+              <span class="gold-foil-text">ROOM CODE:</span>
+              <span id="lobbyRoomCode" class="text-laserCyan font-mono tracking-widest bg-[#080d1e] px-2.5 py-0.5 rounded-xl border border-white/10 text-base font-bold">-----</span>
+              <button id="btnCopyCode" title="Copy code" class="text-slate-400 hover:text-white text-xs px-2.5 py-1 bg-[#121a32] hover:bg-slate-700 rounded-lg border border-white/10 transition active:scale-90">
+                <i class="fa-regular fa-copy"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2.5">
+          <div id="hostNotice" class="text-xs text-amber-300 bg-amber-500/10 px-3.5 py-2 rounded-xl border border-amber-500/30 font-display font-bold uppercase tracking-wider">
+            <i class="fa-solid fa-crown mr-1.5 text-amber-400"></i> ROOM HOST
+          </div>
+          <button id="btnStartAuctionHost" class="shimmer-btn tactile-btn hidden px-6 py-2.5 bg-gradient-to-r from-emerald-500 via-victoryEmerald to-emerald-500 hover:from-emerald-400 text-slate-950 font-black font-display rounded-xl text-xs uppercase tracking-widest shadow-xl shadow-emerald-500/25 transition">
+            <i class="fa-solid fa-play mr-1.5"></i> COMMENCE AUCTION
+          </button>
+        </div>
+      </div>
+
+      <!-- Select Franchise Grid (3D Collectible Cards with Real Vector Crests) -->
+      <div class="esport-panel rounded-3xl p-5 sm:p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-1">
+          <div>
+            <h3 class="text-base sm:text-lg font-black font-display text-white uppercase tracking-wider flex items-center space-x-2">
+              <i class="fa-solid fa-shield-halved text-amber-400"></i>
+              <span>OFFICIAL IPL FRANCHISES</span>
+            </h3>
+            <p class="text-xs text-slate-400 font-sans">Claim ownership of an official franchise to access your real player roster.</p>
+          </div>
+          <span class="text-[10px] font-mono text-laserCyan bg-laserCyan/10 px-2.5 py-1 rounded-full border border-laserCyan/30 self-start sm:self-auto">
+            10 TEAMS COMPETING
+          </span>
+        </div>
+        
+        <div id="franchiseGrid" class="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+          <!-- Injected by JS with 3D cards and hover glow -->
+        </div>
+      </div>
+
+      <!-- YOUR FRANCHISE & RETENTION PORTAL BANNER -->
+      <div id="retentionBanner" class="hidden p-4 sm:p-6 rounded-3xl esport-panel-elevated border-2 border-amber-500/50 flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-5 relative overflow-hidden bg-gradient-to-r from-amber-500/15 via-[#0e162f] to-[#070b18] mb-12 sm:mb-4">
+        <div class="flex items-center space-x-3.5 sm:space-x-4">
+          <div class="w-14 h-14 sm:w-20 sm:h-20 p-2 rounded-2xl bg-[#080d1e] border-2 border-amber-400/40 flex items-center justify-center flex-shrink-0 shadow-2xl shadow-amber-500/20">
+            <img id="bannerTeamLogo" src="" alt="Team Logo" class="w-full h-full object-contain filter drop-shadow" />
+          </div>
+          <div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-display">YOUR FRANCHISE</span>
+              <span id="bannerRetentionsCountBadge" class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#080d1e] text-amber-300 border border-amber-500/40 font-mono">0/2 Retained</span>
+            </div>
+            <h4 id="bannerTeamName" class="text-base sm:text-xl font-black font-display text-white uppercase tracking-wider">
+              Royal Challengers Bengaluru
+            </h4>
+            <p class="text-[11px] sm:text-xs text-slate-300 mt-0.5 font-sans">
+              Starting Purse: <b id="bannerPurseDisplay" class="text-victoryEmerald font-mono font-bold">₹100.00 Cr</b> • Allowed: <b id="bannerMaxRetentions" class="text-amber-400 font-bold">2</b> Retentions
+            </p>
+            <div id="bannerRetainedNames" class="text-xs text-amber-300/80 font-mono mt-1">
+              No players retained yet.
+            </div>
+          </div>
+        </div>
+
+        <button id="btnOpenRetentionModal" class="shimmer-btn tactile-btn min-h-[48px] px-6 py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 text-slate-950 font-black font-display text-xs sm:text-sm uppercase tracking-widest rounded-2xl shadow-2xl shadow-amber-500/30 transition flex items-center justify-center space-x-2 flex-shrink-0 border-t border-white/40 cursor-pointer w-full md:w-auto">
+          <i class="fa-solid fa-lock text-sm"></i>
+          <span>PICK & LOCK RETENTIONS</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 3: LIVE AUCTION ARENA (EXACT VERTICAL CARD HUD)                       -->
+    <!-- ========================================================================= -->
+    <div id="viewAuction" data-view-id="view-auction" class="hidden h-[100dvh] w-full flex-col justify-between bg-[#060913] text-white overflow-hidden p-2 sm:p-4 select-none">
+      
+      <!-- 1. TOP HEADER (Shared Mobile & Desktop) -->
+      <!-- MOBILE HEADER (Screens < 1024px) -->
+      <header class="w-full flex flex-col gap-1.5 shrink-0 z-20 lg:hidden">
+        <!-- Row 1: Franchise Pill on Left, Standings & Settings on Right -->
+        <div class="w-full flex items-center justify-between px-1">
+          <!-- Franchise & Purse Pill -->
+          <button id="btn-header-roster" class="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 rounded-full text-slate-950 font-black shadow-md active:scale-95 transition-transform cursor-pointer">
+            <div class="w-5 h-5 rounded-full bg-slate-950/20 flex items-center justify-center p-0.5 overflow-hidden">
+              <img id="header-team-logo" src="/logos/CSK.svg" alt="CSK" class="w-full h-full object-contain" />
+            </div>
+            <span id="header-team-badge" class="font-black text-xs tracking-wider uppercase">CSK</span>
+            <span class="text-slate-900/40 text-xs">|</span>
+            <span id="header-purse-val" class="font-mono text-xs font-black">₹42.50 Cr</span>
+          </button>
+
+          <!-- Standings Pill + Settings Icon -->
+          <div class="flex items-center gap-2">
+            <button id="btn-open-standings" class="px-3 py-1.5 bg-[#172544] hover:bg-[#1e315b] border border-[#274075] rounded-xl text-xs font-bold text-sky-200 flex items-center gap-1.5 active:scale-95 transition-all shadow-md cursor-pointer">
+              <i class="fa-solid fa-chart-simple text-sky-400 text-xs"></i>
+              <span>Standings</span>
+            </button>
+            <button id="btn-open-menu" class="btn-settings-trigger w-8 h-8 flex items-center justify-center bg-[#172544] hover:bg-[#1e315b] border border-[#274075] rounded-xl text-sky-200 text-xs active:scale-95 transition-all shadow-md cursor-pointer" title="Game Settings">
+              <i class="fa-solid fa-gear text-sky-300 text-xs"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Row 2: Centered Lobby Badge -->
+        <div class="flex items-center justify-center">
+          <button id="btn-copy-code" class="flex items-center gap-1.5 px-3 py-0.5 bg-[#0e172e]/90 hover:bg-[#152347] border border-white/10 rounded-full text-slate-300 text-[11px] font-mono active:scale-95 transition-transform cursor-pointer shadow-sm" title="Click to copy room code">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="font-bold text-slate-400 text-[10px]">LOBBY:</span>
+            <span id="header-room-code" class="text-white font-bold text-[11px]">#AUCT8</span>
+            <span class="text-slate-400 text-[10px]">📋</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- DESKTOP HEADER (Screens >= 1024px) -->
+      <header class="hidden lg:flex w-full items-center justify-between px-5 py-2.5 bg-[#0a1020]/90 border border-slate-800/80 rounded-2xl backdrop-blur-md mb-2 shrink-0 shadow-xl max-w-6xl mx-auto z-20">
+        <!-- Left: App Brand -->
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">🏏</span>
+          <span class="font-display font-black text-sm tracking-wider uppercase text-white">CRICKAUCTION</span>
+        </div>
+
+        <!-- Center: Lobby Code -->
+        <button id="btn-copy-code-desktop" class="flex items-center gap-2 px-3.5 py-1 bg-[#101a33] hover:bg-[#162447] border border-white/10 rounded-full text-slate-300 text-xs font-mono active:scale-95 transition cursor-pointer" title="Click to copy room code">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="font-bold text-slate-400">LOBBY:</span>
+          <span id="desktop-room-code" class="text-white font-bold">#AUCT8</span>
+          <span class="text-slate-400 text-xs">📋</span>
+        </button>
+
+        <!-- Right: Franchise Pill, Standings, Settings -->
+        <div class="flex items-center gap-3">
+          <button id="btn-header-roster-desktop" class="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 rounded-full text-slate-950 font-black text-xs shadow-md cursor-pointer active:scale-95 transition">
+            <div class="w-4 h-4 rounded-full bg-slate-950/20 flex items-center justify-center p-0.5 overflow-hidden">
+              <img id="desktop-team-logo" src="/logos/CSK.svg" alt="Team" class="w-full h-full object-contain" />
+            </div>
+            <span id="desktop-team-badge" class="font-black">CSK</span>
+            <span class="text-slate-900/40">|</span>
+            <span id="desktop-purse-val" class="font-mono font-black">₹42.50 Cr</span>
+          </button>
+          <button id="btn-open-standings-desktop" class="px-3.5 py-1.5 bg-[#172544] hover:bg-[#1e315b] border border-[#274075] rounded-xl text-xs font-bold text-sky-200 flex items-center gap-1.5 cursor-pointer active:scale-95 transition">
+            <i class="fa-solid fa-chart-simple text-sky-400 text-xs"></i>
+            <span>Tournament Standings</span>
+          </button>
+          <button id="btn-open-menu-desktop" class="btn-settings-trigger w-8 h-8 flex items-center justify-center bg-[#172544] hover:bg-[#1e315b] border border-[#274075] rounded-xl text-sky-200 text-xs cursor-pointer active:scale-95 transition" title="Game Settings">
+            <i class="fa-solid fa-gear text-sky-300 text-xs"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- 2. MAIN BATTLEGROUND (Mobile Stack / Desktop 2-Column Split) -->
+      <main class="flex-1 w-full max-w-6xl mx-auto flex flex-col lg:flex-row lg:items-stretch lg:justify-center gap-2 sm:gap-3 lg:gap-6 overflow-hidden my-auto">
+        
+        <!-- LEFT COLUMN (Mobile & Desktop: The Hero Player Trading Card) -->
+        <div class="w-full lg:w-[46%] max-w-sm sm:max-w-md mx-auto flex flex-col justify-center">
+          <div class="trading-card-frame w-full rounded-2xl p-2.5 sm:p-3.5 flex flex-col justify-between relative overflow-hidden shadow-2xl">
+            
+            <!-- Top Lot Ribbon Badge -->
+            <div class="flex items-center justify-center w-full z-10 shrink-0">
+              <div id="player-lot-ribbon" class="px-4 py-0.5 rounded bg-gradient-to-r from-amber-500/20 via-amber-400/40 to-amber-500/20 border-y border-amber-400/50 text-amber-300 font-display font-black text-[11px] sm:text-xs tracking-widest uppercase flex items-center gap-1.5 shadow-sm">
+                <span class="text-amber-500 text-[9px]">\\\</span>
+                <span id="player-lot-tag">LOT #2 • WICKETKEEPER</span>
+                <span class="text-amber-500 text-[9px]">///</span>
+              </div>
+            </div>
+
+            <!-- Timer Strip with Dynamic Role Flank Icons -->
+            <div class="flex items-center justify-center gap-3 my-1 z-10 shrink-0">
+              <span id="timer-icon-left" class="text-amber-400 text-base sm:text-lg flex items-center drop-shadow">🧤</span>
+              <div id="auction-timer-badge" class="font-mono text-2xl sm:text-3xl font-black text-red-500 drop-shadow-[0_0_12px_rgba(239,68,68,0.7)] tracking-tight">
+                <span id="timer-seconds">12s</span>
+              </div>
+              <span id="timer-icon-right" class="text-amber-400 text-base sm:text-lg flex items-center drop-shadow">🧤</span>
+            </div>
+
+            <!-- Inner Player Box (Photo, OVR, Name, Base Price, 4 Stats) -->
+            <div class="inner-player-box rounded-xl p-2 sm:p-2.5 bg-gradient-to-b from-[#142342] via-[#0c1527] to-[#070c17] border border-amber-400/40 flex flex-col items-center justify-between relative shadow-inner">
+              
+              <!-- OVR Rating Shield (Top-Right) -->
+              <div class="ovr-rating-shield">
+                <span class="text-amber-200 text-[9px] font-black leading-none">★</span>
+                <span id="player-ovr" class="font-mono font-black text-white text-base sm:text-lg leading-tight">88</span>
+                <span class="text-[8px] font-black text-amber-200/90 tracking-wider leading-none">OVR</span>
+              </div>
+
+              <!-- Player Portrait Photo with Watermark overlays -->
+              <div class="relative w-28 h-28 sm:w-36 sm:h-36 my-1 flex items-center justify-center">
+                <img 
+                  id="player-img" 
+                  src="" 
+                  alt="Player" 
+                  class="w-full h-full object-contain filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)]" 
+                  onerror="window.handlePlayerImageError(this, window.currentPlayerRole || 'batter')" 
+                />
+
+                <!-- Dynamic Sold/Unsold Watermarks -->
+                <div id="playerSoldWatermark" class="hidden absolute inset-0 bg-red-600/90 flex items-center justify-center font-black font-display text-xl sm:text-2xl uppercase tracking-widest text-white shadow-2xl border-2 border-white rounded-xl z-20">
+                  SOLD
+                </div>
+                <div id="playerUnsoldWatermark" class="hidden absolute inset-0 bg-slate-900/95 flex items-center justify-center font-black font-display text-lg sm:text-xl uppercase tracking-widest text-slate-300 border-2 border-slate-600 rounded-xl z-20">
+                  UNSOLD
+                </div>
+              </div>
+
+              <!-- Player Name & Country Code -->
+              <div class="text-center w-full z-10 px-1 mt-0.5">
+                <h2 id="player-name" class="font-display font-black text-base sm:text-xl text-white uppercase tracking-wide drop-shadow-md leading-tight">
+                  KABIR KHAN
+                </h2>
+                <div class="flex items-center justify-center gap-1.5 text-xs text-slate-300 font-bold mt-0.5">
+                  <span id="player-flag">🇮🇳</span>
+                  <span id="player-country" class="font-mono text-[11px] tracking-wider text-slate-400">IND</span>
+                </div>
+              </div>
+
+              <!-- Embossed Base Price Plaque -->
+              <div class="base-price-plaque w-44 sm:w-48 my-1.5 px-3 py-0.5 flex flex-col items-center justify-center shadow-lg">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-950/40 absolute left-2 top-1/2 -translate-y-1/2 border border-amber-950/40"></span>
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-950/40 absolute right-2 top-1/2 -translate-y-1/2 border border-amber-950/40"></span>
+                <div class="text-[8px] sm:text-[9px] uppercase tracking-widest text-neutral-950 font-black">BASE PRICE</div>
+                <div id="player-base-price" class="text-sm sm:text-base font-black font-mono text-slate-950 leading-tight">₹1.50 CR</div>
+              </div>
+
+              <!-- 4-Stat Strip with Role-Specific Icons -->
+              <div id="role-stats-grid" class="w-full grid grid-cols-4 gap-1 p-1.5 bg-black/40 border border-white/10 rounded-xl text-center">
+                <!-- Col 1: Matches -->
+                <div class="flex flex-col items-center">
+                  <span id="stat-icon-1" class="text-amber-400 text-xs">🪖</span>
+                  <span id="stat-label-1" class="text-[9px] font-bold text-slate-400 uppercase tracking-tight">MAT</span>
+                  <span id="stat-col1" class="text-xs sm:text-sm font-black font-mono text-white leading-tight">120</span>
+                </div>
+                <!-- Col 2: Runs/Wkts -->
+                <div class="flex flex-col items-center border-l border-white/10">
+                  <span id="stat-icon-2" class="text-amber-400 text-xs">🏏</span>
+                  <span id="stat-label-2" class="text-[9px] font-bold text-slate-400 uppercase tracking-tight">RUNS</span>
+                  <span id="stat-col2" class="text-xs sm:text-sm font-black font-mono text-cyan-400 leading-tight">2840</span>
+                </div>
+                <!-- Col 3: Avg/Wkts/Dis -->
+                <div class="flex flex-col items-center border-l border-white/10">
+                  <span id="stat-icon-3" class="text-amber-400 text-xs">🧤</span>
+                  <span id="stat-label-3" class="text-[9px] font-bold text-slate-400 uppercase tracking-tight">DIS</span>
+                  <span id="stat-col3" class="text-xs sm:text-sm font-black font-mono text-white leading-tight">112</span>
+                </div>
+                <!-- Col 4: SR/Econ -->
+                <div class="flex flex-col items-center border-l border-white/10">
+                  <span id="stat-icon-4" class="text-amber-400 text-xs">⏱️</span>
+                  <span id="stat-label-4" class="text-[9px] font-bold text-slate-400 uppercase tracking-tight">SR</span>
+                  <span id="stat-col4" class="text-xs sm:text-sm font-black font-mono text-amber-400 leading-tight">132.80</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN (Desktop: Live Bid Spotlight + Controls + Recent History / Mobile: Spotlight + Action Dock) -->
+        <div class="w-full lg:w-[54%] max-w-sm sm:max-w-md lg:max-w-xl mx-auto flex flex-col justify-between gap-2 sm:gap-2.5">
+          
+          <!-- Live Bid Spotlight Capsule -->
+          <div class="live-bid-spotlight w-full p-2.5 sm:p-3 flex flex-col items-center justify-center text-center shrink-0">
+            <div class="live-bid-spotlight-flare-left"></div>
+            <div class="live-bid-spotlight-flare-right"></div>
+            
+            <!-- Feedback Chip floating container -->
+            <div id="bidFloatChipContainer" class="absolute left-3 -top-5 pointer-events-none z-50 flex flex-col items-start gap-1"></div>
+
+            <span class="text-[10px] sm:text-[11px] font-semibold text-amber-300/80 uppercase tracking-wider">
+              <span class="lg:hidden">Live bid spotlight</span>
+              <span class="hidden lg:inline">CURRENT HIGHEST BID</span>
+            </span>
+            <div id="current-bid-amount" class="text-2xl sm:text-3xl lg:text-4xl font-black font-mono text-amber-400 tracking-tight my-0.5 drop-shadow-[0_0_15px_rgba(251,191,36,0.5)]">
+              ₹ 8.50 Cr
+            </div>
+            <div id="leading-bidder-tag" class="text-xs sm:text-sm font-bold text-slate-300 flex items-center justify-center gap-1.5 mt-0.5">
+              <span class="text-slate-400">Leading Bidder:</span>
+              <span id="leading-bidder-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block"></span>
+              <span id="leading-bidder-name" class="text-white font-extrabold">👑 RCB (Player 1)</span>
+            </div>
+          </div>
+
+          <!-- Telemetry Sub-bar on Desktop -->
+          <div class="hidden lg:flex items-center justify-between px-3 text-xs text-slate-400 font-mono">
+            <span>SQUAD: <b id="desktop-squad" class="text-white">14/25</b></span>
+            <span>PURSE LEFT: <b id="desktop-purse" class="text-emerald-400">₹42.50 Cr</b></span>
+          </div>
+
+          <!-- Action Button Dock -->
+          <div class="w-full flex items-center gap-2.5 shrink-0">
+            <!-- FOLD (~30% width) -->
+            <button id="btn-fold" class="w-[30%] sm:w-[28%] min-h-[50px] sm:min-h-[54px] h-13 sm:h-14 py-2.5 sm:py-3 bg-gradient-to-r from-red-950/90 to-[#421217] hover:from-red-900 border border-red-500/60 text-red-300 font-black text-xs sm:text-sm rounded-full flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-red-950/40 active:scale-[0.98] cursor-pointer">
+              <span class="text-sm sm:text-base">✋</span>
+              <span id="fold-btn-text">FOLD</span>
+            </button>
+
+            <!-- BID (~70% width) -->
+            <button id="btn-place-bid" class="w-[70%] sm:w-[72%] min-h-[50px] sm:min-h-[54px] h-13 sm:h-14 py-2.5 sm:py-3 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 active:scale-[0.98] text-slate-950 font-black text-sm sm:text-base tracking-wide rounded-full shadow-xl shadow-amber-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer">
+              <span class="text-base sm:text-lg">🔨</span>
+              <span id="bid-btn-text" class="truncate font-black">BID ₹9.00 CR (+50L)</span>
+            </button>
+          </div>
+
+          <!-- Telemetry Sub-line (Mobile View) -->
+          <div class="flex lg:hidden items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-[11px] text-slate-400 font-mono text-center shrink-0">
+            <span>Squad: <b id="footer-squad" class="text-slate-200">14/25</b></span>
+            <span>•</span>
+            <span>Purse Left: <b id="footer-purse" class="text-emerald-400">₹42.50 Cr</b></span>
+            <span>•</span>
+            <span>Passed: <b id="footer-folds" class="text-amber-400">3/9</b></span>
+          </div>
+
+          <!-- Recent Bid History Feed (Desktop View, Reference 4) -->
+          <div id="desktopRecentBidsContainer" class="hidden lg:flex flex-col flex-1 p-3.5 rounded-2xl bg-[#0a1020]/90 border border-slate-800/80 shadow-xl overflow-hidden min-h-[140px]">
+            <div class="flex items-center justify-between pb-2 border-b border-white/10 mb-2">
+              <span class="text-xs font-black font-display uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <i class="fa-solid fa-clock-rotate-left text-amber-400 text-xs"></i>
+                <span>RECENT BID HISTORY</span>
+              </span>
+              <span class="text-[10px] text-slate-400 font-mono">Live Timeline</span>
+            </div>
+            <div id="recentBidsList" class="flex-1 overflow-y-auto space-y-2 pr-1 font-mono text-xs">
+              <div class="text-slate-500 text-xs italic py-4 text-center">Waiting for first bid...</div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 4: GRAND FINALE CHAMPIONSHIP PODIUM (PAGE 4: #podium)                -->
+    <!-- ========================================================================= -->
+    <div id="viewFinished" data-view-alias="view-podium" class="hidden flex-1 flex flex-col items-center justify-start text-center p-3 sm:p-6 space-y-6 max-w-6xl w-full mx-auto">
+      
+      <!-- Championship Podium Header -->
+      <div class="space-y-1">
+        <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[11px] font-black font-display uppercase tracking-widest">
+          <i class="fa-solid fa-trophy text-amber-400"></i>
+          <span>Official Season Standings</span>
+        </div>
+        <h2 class="text-2xl sm:text-4xl font-black font-display uppercase tracking-wider gold-foil-text">
+          IPL MEGA AUCTION CHAMPIONSHIP
+        </h2>
+        <p class="text-slate-400 max-w-xl text-xs sm:text-sm font-sans mx-auto">
+          Ranked by Total Squad Points calculated from the 0–100 player rating engine. Higher remaining purse breaks ties.
+        </p>
+      </div>
+
+      <!-- OLYMPIC-STYLE TOP 3 PODIUM -->
+      <div id="podiumTop3Container" class="w-full flex flex-col md:flex-row items-center md:items-end justify-center gap-4 sm:gap-6 pt-6 pb-2 min-h-[300px]">
+        <!-- Injected dynamically by JS -->
+      </div>
+
+      <!-- POSITIONS 4 THROUGH 10 LEADERBOARD TABLE -->
+      <div class="w-full esport-panel rounded-3xl p-4 sm:p-6 text-left shadow-2xl">
+        <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
+          <h3 class="text-sm sm:text-base font-black font-display text-white uppercase tracking-wider flex items-center space-x-2">
+            <i class="fa-solid fa-list-ol text-laserCyan"></i>
+            <span>ALL FRANCHISE STANDINGS & SQUAD LEADERBOARD</span>
+          </h3>
+          <span class="text-[10px] text-slate-400 font-mono">Tap any franchise to inspect player points</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-slate-400 font-display uppercase tracking-wider text-[10px] border-b border-white/5 pb-2">
+                <th class="py-2.5 px-3 text-left">Rank</th>
+                <th class="py-2.5 px-3 text-left">Franchise</th>
+                <th class="py-2.5 px-3 text-left">Manager</th>
+                <th class="py-2.5 px-3 text-center">Squad</th>
+                <th class="py-2.5 px-3 text-right">Remaining Purse</th>
+                <th class="py-2.5 px-3 text-right">Total Points</th>
+              </tr>
+            </thead>
+            <tbody id="podiumRestTableBody" class="divide-y divide-white/5 font-sans">
+              <!-- Injected by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="pt-2 flex items-center justify-center space-x-3 flex-wrap gap-y-2">
+        <button id="btnViewFinalSquads" class="tactile-btn px-6 py-3.5 bg-[#0d1324] border border-white/20 hover:border-amber-400 text-slate-200 font-black font-display rounded-2xl text-xs sm:text-sm uppercase tracking-widest shadow-xl transition">
+          <i class="fa-solid fa-users mr-2"></i> Inspect Squads
+        </button>
+        <button id="btnReturnHomeFromPodium" class="shimmer-btn tactile-btn px-8 py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 text-slate-950 font-black font-display rounded-2xl text-xs sm:text-sm uppercase tracking-widest shadow-2xl shadow-amber-500/30 transition">
+          <i class="fa-solid fa-house mr-2"></i> Home Gateway
+        </button>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- SIDEBAR DRAWER: FRANCHISE LEADERBOARD                                     -->
+  <!-- ========================================================================= -->
+  <aside id="teamsDrawer" class="fixed inset-y-0 right-0 w-full sm:w-96 bg-[#080d1e] border-l border-white/10 z-40 transform translate-x-full transition-transform duration-300 shadow-2xl flex flex-col pointer-events-none">
+    <div class="p-4 border-b border-white/10 flex items-center justify-between bg-[#0b1227]">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-trophy text-amber-400"></i>
+        <h3 class="font-black font-display text-sm text-white uppercase tracking-wider">Franchise Leaderboard</h3>
+      </div>
+      <button id="closeTeamsDrawerBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+    </div>
+
+    <!-- Teams List -->
+    <div id="drawerTeamsList" class="flex-1 overflow-y-auto p-4 space-y-3">
+      <!-- Injected by JS with team cards -->
+    </div>
+  </aside>
+
+  <!-- ========================================================================= -->
+  <!-- SIDEBAR DRAWER: FULL COMMENTARY LOGS FEED                                 -->
+  <!-- ========================================================================= -->
+  <aside id="logsDrawer" class="fixed inset-y-0 right-0 w-full sm:w-96 bg-[#080d1e] border-l border-white/10 z-40 transform translate-x-full transition-transform duration-300 shadow-2xl flex flex-col pointer-events-none">
+    <div class="p-4 border-b border-white/10 flex items-center justify-between bg-[#0b1227]">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-timeline text-laserCyan"></i>
+        <h3 class="font-black font-display text-sm text-white uppercase tracking-wider">Broadcast Event Feed</h3>
+      </div>
+      <button id="closeLogsDrawerBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+    </div>
+
+    <div id="fullLogsFeed" class="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs text-slate-300">
+      <!-- Injected by JS -->
+    </div>
+  </aside>
+
+  <!-- BACKDROP OVERLAY FOR DRAWERS -->
+  <div id="drawerOverlay" class="fixed inset-0 bg-black/75 backdrop-blur-md z-30 hidden transition-opacity"></div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: SQUAD DETAILS INSPECTOR                                            -->
+  <!-- ========================================================================= -->
+  <div id="squadModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+    <div class="esport-panel-elevated w-full max-w-2xl max-h-[85vh] rounded-3xl p-5 flex flex-col border border-white/15 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-white/10">
+        <div class="flex items-center space-x-3">
+          <img id="modalTeamLogoImg" src="" alt="Logo" class="w-12 h-12 object-contain filter drop-shadow" />
+          <div>
+            <h3 id="modalTeamName" class="text-base font-black font-display text-white uppercase tracking-wide">Chennai Super Kings</h3>
+            <div id="modalTeamPurse" class="text-xs text-victoryEmerald font-mono">Purse: ₹85.00 Cr</div>
+          </div>
+        </div>
+        <button id="closeSquadModalBtn" class="p-2 text-slate-400 hover:text-white rounded-xl bg-white/5">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto my-3 pr-1">
+        <div id="modalSquadList" class="space-y-2">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: DEDICATED FRANCHISE RETENTION PORTAL                               -->
+  <!-- ========================================================================= -->
+  <div id="retentionModal" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/90 backdrop-blur-md hidden">
+    <div class="esport-panel-elevated w-full max-w-4xl max-h-[92vh] rounded-3xl p-4 sm:p-6 flex flex-col border-2 border-amber-500/40 shadow-2xl bg-[#080d1e]/98">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 sm:pb-4 border-b border-white/10 gap-3">
+        <div class="flex items-center space-x-3.5">
+          <div class="w-14 h-14 p-2 rounded-2xl bg-[#05070e] border border-white/15 flex items-center justify-center flex-shrink-0 shadow-lg">
+            <img id="modalRetentionLogo" src="" alt="Team Logo" class="w-full h-full object-contain filter drop-shadow" />
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 id="modalRetentionTeamName" class="text-base sm:text-xl font-black font-display text-white uppercase tracking-wider">Royal Challengers Bengaluru</h3>
+              <span class="px-2 py-0.5 rounded-full text-[9px] font-black font-display bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wider">LOCKER ROOM</span>
+            </div>
+            <p class="text-xs text-slate-400 font-sans">
+              Allowed up to <b id="modalMaxRetentions" class="text-amber-400 font-bold">2</b> core retentions. Retained stars bypass the open auction hammer.
+            </p>
+          </div>
+        </div>
+        <button id="closeRetentionModalBtn" class="p-2.5 text-slate-400 hover:text-white rounded-xl bg-white/5 border border-white/10 hover:border-white/20 transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Live Financial Impact Preview Bar -->
+      <div class="my-3 p-3.5 rounded-2xl bg-[#05070e] border border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono">
+          <div><span class="text-slate-400">Opening:</span> <span id="modalInitialPurse" class="font-bold text-white">₹100.00 Cr</span></div>
+          <div><span class="text-slate-400">Deductions:</span> <span id="modalDeductionPurse" class="font-bold text-laserCrimson">-₹0.00 Cr</span></div>
+          <div><span class="text-slate-400">Remaining:</span> <span id="modalRemainingPurse" class="font-black text-victoryEmerald">₹100.00 Cr</span></div>
+        </div>
+        <div id="modalSelectedCountBadge" class="px-3 py-1 rounded-xl bg-amber-400/20 text-amber-300 font-bold font-mono border border-amber-400/40 text-xs">
+          Selected: 0/2
+        </div>
+      </div>
+
+      <!-- Filters & Search Toolbar -->
+      <div class="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div id="retentionFilterChips" class="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
+          <button data-filter="ALL" class="retention-filter-btn px-3 py-1.5 rounded-xl text-xs font-black font-display bg-amber-400 text-slate-950 shadow-md">All (<span id="modalCountAll">27</span>)</button>
+          <button data-filter="Batter" class="retention-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold font-display bg-[#0e172e] text-slate-300 border border-white/10 hover:bg-[#162347]">Batters</button>
+          <button data-filter="Bowler" class="retention-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold font-display bg-[#0e172e] text-slate-300 border border-white/10 hover:bg-[#162347]">Bowlers</button>
+          <button data-filter="All-Rounder" class="retention-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold font-display bg-[#0e172e] text-slate-300 border border-white/10 hover:bg-[#162347]">All-Rounders</button>
+          <button data-filter="Wicketkeeper" class="retention-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold font-display bg-[#0e172e] text-slate-300 border border-white/10 hover:bg-[#162347]">Wicketkeepers</button>
+        </div>
+
+        <div class="relative w-full sm:w-60">
+          <input 
+            id="searchRetentionPlayer" 
+            type="text" 
+            placeholder="Search star by name..." 
+            class="w-full bg-[#05070e] border border-white/15 rounded-xl pl-8 pr-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400 placeholder-slate-500 font-sans" 
+          />
+          <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-xs text-slate-500"></i>
+        </div>
+      </div>
+
+      <!-- Player Cards Scrollable Container -->
+      <div class="flex-1 overflow-y-auto pr-1 my-1 min-h-[220px]">
+        <div id="modalRetentionPlayersGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <!-- Dynamically populated with trading cards & stats -->
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="pt-3 border-t border-white/10 flex items-center justify-between gap-3">
+        <button id="btnSkipRetentions" class="px-4 py-2.5 text-xs font-bold font-display uppercase tracking-wider text-slate-400 hover:text-white rounded-xl hover:bg-white/5 transition">
+          Clear / Skip Retentions
+        </button>
+        <button id="btnSaveRetentionsModal" class="shimmer-btn tactile-btn px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 text-slate-950 font-black font-display text-xs uppercase tracking-widest rounded-xl shadow-lg shadow-amber-500/25 transition active:scale-95 flex items-center space-x-1.5">
+          <i class="fa-solid fa-lock"></i>
+          <span>Save & Lock Retentions</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MOBILE BOTTOM SHEET: SQUADS & LEADERBOARD (Screens <= 768px)               -->
+  <!-- ========================================================================= -->
+  <div id="mobileSheetBackdrop" class="mobile-bottom-sheet-backdrop hidden"></div>
+  <div id="mobileBottomSheet" class="mobile-bottom-sheet hidden">
+    <!-- Top Swipe Drag Handle -->
+    <div class="mobile-sheet-drag-handle-zone" id="mobileSheetDragHandle">
+      <div class="mobile-sheet-drag-pill"></div>
+    </div>
+    <div class="px-4 py-2.5 border-b border-white/10 flex items-center justify-between bg-[#0b1227]">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-trophy text-amber-400 text-sm"></i>
+        <h3 class="font-black font-display text-sm text-white uppercase tracking-wider">Franchise Squads & Standings</h3>
+      </div>
+      <button id="closeMobileSheetBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+    </div>
+    <div id="mobileSheetContent" class="flex-1 overflow-y-auto p-3 space-y-2.5">
+      <!-- Injected by JS: Accordion Franchise Cards with player lists -->
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: SETTINGS & AUDIO CONTROLS (#modal-settings)                        -->
+  <!-- ========================================================================= -->
+  <div id="modal-settings" class="modal-backdrop hidden">
+    <div class="modal-sheet">
+      <div class="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-slate-900/90">
+        <div class="flex items-center gap-2">
+          <span class="text-base">⚙️</span>
+          <h3 class="font-black font-display text-sm text-white uppercase tracking-wider">Audio & Game Settings</h3>
+        </div>
+        <button class="btn-modal-close p-1.5 text-slate-400 hover:text-white rounded-lg active:scale-90 transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+      <div class="p-4 space-y-3 overflow-y-auto">
+        <!-- Voice commentary toggle -->
+        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-white/10">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-solid fa-volume-high text-amber-400 text-sm"></i>
+            <div>
+              <div class="text-xs font-bold text-white uppercase tracking-wider">Voice Commentator</div>
+              <div class="text-[10px] text-slate-400">Live spoken auction commentary</div>
+            </div>
+          </div>
+          <button id="btn-voice-toggle" class="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold active:scale-95 transition">
+            <span id="voiceText">Voice ON</span>
+          </button>
+        </div>
+
+        <!-- SFX toggle -->
+        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-white/10">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-solid fa-bell text-emerald-400 text-sm"></i>
+            <div>
+              <div class="text-xs font-bold text-white uppercase tracking-wider">Sound Effects</div>
+              <div class="text-[10px] text-slate-400">Bids, hammer drops and timers</div>
+            </div>
+          </div>
+          <button id="btnToggleSFX" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold active:scale-95 transition">
+            <span id="sfxToggleText">ON</span>
+          </button>
+        </div>
+
+        <!-- Cheers toggle -->
+        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-white/10">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-solid fa-bullhorn text-laserCyan text-sm"></i>
+            <div>
+              <div class="text-xs font-bold text-white uppercase tracking-wider">Spectator Cheers</div>
+              <div class="text-[10px] text-slate-400">Floating emoji cheer reactions</div>
+            </div>
+          </div>
+          <button id="btnCheerToggle" class="px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold active:scale-95 transition">
+            <span id="cheerToggleText">ON</span>
+          </button>
+        </div>
+
+        <!-- Event Feed button -->
+        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-white/10">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-solid fa-timeline text-laserCyan text-sm"></i>
+            <div>
+              <div class="text-xs font-bold text-white uppercase tracking-wider">Event Feed</div>
+              <div class="text-[10px] text-slate-400">Real-time commentary & auction logs</div>
+            </div>
+          </div>
+          <button id="btnModalOpenLogs" class="px-3 py-1.5 rounded-lg bg-cyan-500/20 text-laserCyan border border-cyan-500/40 text-xs font-mono font-bold active:scale-95 transition cursor-pointer">
+            Open Feed
+          </button>
+        </div>
+
+        <!-- Leave Room button -->
+        <div class="pt-2 border-t border-white/10">
+          <button id="btnLeaveRoomModal" class="w-full px-3 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-bold flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer">
+            <i class="fa-solid fa-arrow-right-from-bracket text-xs"></i>
+            <span>Leave Match / Exit Room</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: SQUADS & LEADERBOARD (#modal-standings)                             -->
+  <!-- ========================================================================= -->
+  <div id="modal-standings" class="modal-backdrop hidden">
+    <div class="modal-sheet">
+      <div class="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-slate-900/90">
+        <div class="flex items-center gap-2">
+          <span class="text-base">🏆</span>
+          <h3 class="font-black font-display text-sm text-white uppercase tracking-wider">Franchise Squads & Standings</h3>
+        </div>
+        <button class="btn-modal-close p-1.5 text-slate-400 hover:text-white rounded-lg active:scale-90 transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+      <div id="modal-standings-content" class="flex-1 overflow-y-auto p-3 space-y-2.5">
+        <!-- Injected by JS: Accordion Franchise Cards with player lists -->
+      </div>
+    </div>
+  </div>
+
+  <!-- FLOATING CHEER SPRITE REACTION LAYER (Full-screen overlay for both mobile and desktop) -->
+  <div id="cheerReactionContainer" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
+  <div id="cheer-particle-container" class="fixed inset-0 pointer-events-none z-[9999] overflow-hidden"></div>
+
+  <script src="/app.js?v=30.0"></script>
+  <script>
+    // WIPE ALL SERVICE WORKERS & ALL CACHES TO PREVENT ANY OLD CODE FREEZING
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        for (const registration of registrations) {
+          registration.unregister();
+        }
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then(names => {
+        for (const name of names) {
+          caches.delete(name);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
