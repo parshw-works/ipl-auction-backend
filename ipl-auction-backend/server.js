@@ -427,7 +427,16 @@ function handlePlayerSoldOrUnsold(room) {
 
   if (room.highestBidder) {
     // SOLD!
-    const winningTeam = room.teams.get(room.highestBidder.socketId);
+    let winningTeam = room.teams.get(room.highestBidder.socketId);
+    if (!winningTeam) {
+      for (const t of room.teams.values()) {
+        if (t.franchiseId === room.highestBidder.teamId) {
+          winningTeam = t;
+          break;
+        }
+      }
+    }
+
     if (winningTeam) {
       winningTeam.purse -= room.currentBid;
       winningTeam.squad.push({
@@ -458,6 +467,14 @@ function handlePlayerSoldOrUnsold(room) {
     room.unsoldPlayers.push(player);
     addRoomLog(room, `❌ UNSOLD! ${player.name} went unsold at base price ₹${(player.basePrice / 10000000).toFixed(2)} Cr.`, 'unsold');
     io.to(room.code).emit('player_unsold', { player });
+  }
+
+  // Clear all lot folds immediately so no team remains locked during the transition
+  if (room.foldedTeams) room.foldedTeams.clear();
+  if (room.teams) {
+    for (const t of room.teams.values()) {
+      t.isFolded = false;
+    }
   }
 
   // Check Trigger B: Squad capacity or financial saturation
@@ -633,7 +650,7 @@ io.on('connection', (socket) => {
   });
 
   // 2. Join Room (Brand New Joiners Only)
-  socket.on('join_room', ({ roomCode, managerName, sessionToken, playerId }, callback) => {
+  socket.on('join_room', ({ roomCode, managerName, sessionToken, playerId, asSpectator }, callback) => {
     try {
       if (!roomCode) return callback && callback({ success: false, error: 'Room code is required' });
       const code = roomCode.toUpperCase().trim();
@@ -708,7 +725,7 @@ io.on('connection', (socket) => {
 
       // Brand new joiner
       const isLobbyFull = room.teams.size >= 10;
-      const isAutoSpectator = room.isStarted || isLobbyFull;
+      const isAutoSpectator = !!asSpectator || room.isStarted || isLobbyFull;
       const role = isAutoSpectator ? 'spectator' : 'manager';
 
       room.members.set(pId, {
@@ -1128,13 +1145,9 @@ io.on('connection', (socket) => {
       const team = getTeamForSocket(room, socket);
       if (!team) return callback && callback({ success: false, error: 'You have not claimed a team franchise.' });
 
-      // Rule 1: If a team folds on a cricket player, that team can't bid on that player again
-      if ((room.foldedTeams && room.foldedTeams.has(team.franchiseId)) || team.isFolded) {
-        return callback && callback({
-          success: false,
-          error: 'You have folded for this player and cannot bid on them again.'
-        });
-      }
+      // Dynamic re-entry: placing a bid automatically un-folds the team and re-activates them
+      if (room.foldedTeams) room.foldedTeams.delete(team.franchiseId);
+      team.isFolded = false;
 
       // Guard: Highest bidder cannot bid against themselves (allow self-raise in solo/1-team test mode)
       const isSoloTesting = room.teams.size <= 1;
@@ -1216,11 +1229,13 @@ io.on('connection', (socket) => {
       io.to(room.code).emit('bid_accepted', {
         currentBid: room.currentBid,
         highestBidder: room.highestBidder,
-        nextIncrement: calculateIncrement(room.currentBid)
+        nextIncrement: calculateIncrement(room.currentBid),
+        foldedTeams: []
       });
 
       // Check consensus hammer resolution after bid
       evaluateLotConsensus(room);
+      broadcastRoomUpdate(room.code);
 
       if (typeof callback === 'function') {
         callback({ success: true, currentBid: room.currentBid });
@@ -1319,26 +1334,70 @@ io.on('connection', (socket) => {
       }
 
       if (!room.foldedTeams) room.foldedTeams = new Set();
-      room.foldedTeams.add(team.franchiseId);
-      team.isFolded = true;
+      const isAlreadyFolded = room.foldedTeams.has(team.franchiseId) || team.isFolded;
 
-      addRoomLog(
-        room,
-        `✋ ${team.name} (${team.franchiseId}) folded on ${room.currentPlayer.name}.`,
-        'info'
-      );
-
-      const consensus = evaluateLotConsensus(room);
-      broadcastRoomUpdate(roomCode);
-
-      if (typeof callback === 'function') {
-        callback({
+      if (isAlreadyFolded) {
+        // Toggle un-fold
+        room.foldedTeams.delete(team.franchiseId);
+        team.isFolded = false;
+        addRoomLog(
+          room,
+          `🔄 ${team.name} (${team.franchiseId}) un-folded and re-entered the lot.`,
+          'info'
+        );
+        broadcastRoomUpdate(roomCode);
+        return callback && callback({
+          success: true,
+          folded: false
+        });
+      } else {
+        // Fold
+        room.foldedTeams.add(team.franchiseId);
+        team.isFolded = true;
+        addRoomLog(
+          room,
+          `✋ ${team.name} (${team.franchiseId}) folded on ${room.currentPlayer.name}.`,
+          'info'
+        );
+        const consensus = evaluateLotConsensus(room);
+        broadcastRoomUpdate(roomCode);
+        return callback && callback({
           success: true,
           folded: true,
           allFolded: consensus.handled,
           outcome: consensus.outcome || null
         });
       }
+    } catch (err) {
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
+  });
+
+  // 9B. Switch User Role (Manager <-> Spectator runtime switch)
+  socket.on('switch_role', ({ role }, callback) => {
+    try {
+      const roomCode = socket.roomCode;
+      const room = rooms.get(roomCode);
+      if (!room) return callback && callback({ success: false, error: 'Room not found' });
+      const targetRole = role === 'spectator' ? 'spectator' : 'manager';
+      const member = socket.playerId ? room.members.get(socket.playerId) : null;
+      if (member) member.role = targetRole;
+
+      if (targetRole === 'spectator') {
+        if (!room.spectators) room.spectators = new Map();
+        room.spectators.set(socket.id, {
+          socketId: socket.id,
+          playerId: socket.playerId,
+          managerName: member ? member.playerName : 'Spectator',
+          supportedTeam: null
+        });
+        addRoomLog(room, `👀 ${member ? member.playerName : 'Player'} switched to Spectator View.`);
+      } else {
+        if (room.spectators) room.spectators.delete(socket.id);
+        addRoomLog(room, `🔨 ${member ? member.playerName : 'Player'} switched to Manager View.`);
+      }
+      broadcastRoomUpdate(roomCode);
+      if (typeof callback === 'function') callback({ success: true, role: targetRole });
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
     }
