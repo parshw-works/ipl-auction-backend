@@ -356,9 +356,11 @@ function broadcastRoomUpdate(roomCode) {
 }
 
 function addRoomLog(room, message, type = 'info', meta = null) {
+  const timestamp = Date.now();
   const entry = {
-    id: Date.now() + Math.random().toString(36).substring(2, 6),
-    time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    id: 'log_' + timestamp + '_' + Math.random().toString(36).substring(2, 6),
+    timestamp,
+    time: new Date(timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     message,
     type,
     meta
