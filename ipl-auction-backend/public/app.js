@@ -540,23 +540,30 @@ if (typeof io !== 'undefined') {
   });
 }
 
-// Web Speech API Voice Commentary Synthesizer
-function speakCommentary(text) {
-  if (!window.auctionAudio || !window.auctionAudio.voiceEnabled || !('speechSynthesis' in window)) return;
+// Web Speech API Voice Commentary Synthesizer (Queue & Debounce Guard - Section 2)
+function speakCommentary(text, isUrgent = false) {
+  if (!window.auctionAudio || !window.auctionAudio.voiceEnabled) return;
+  if (!('speechSynthesis' in window)) return;
+
   try {
-    window.speechSynthesis.cancel(); // clear queue for instant commentary
+    if (isUrgent) {
+      window.speechSynthesis.cancel();
+    } else if (window.speechSynthesis.speaking) {
+      return; // Let the current sentence finish naturally rather than cutting it off
+    }
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.05;
     utterance.pitch = 1.0;
-    
+
     // Choose an English voice
     const voices = window.speechSynthesis.getVoices();
     const naturalVoice = voices.find(v => v.lang.includes('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('India') || v.name.includes('Cricket')));
     if (naturalVoice) utterance.voice = naturalVoice;
-    
+
     window.speechSynthesis.speak(utterance);
   } catch (e) {
-    // voice blocked
+    // voice blocked or speech synthesis unavailable
   }
 }
 
@@ -3261,6 +3268,15 @@ if (matchActivityWire) {
   });
 }
 
+// Local Timezone Log Formatter (Section 3)
+function formatLogTime(timestamp, fallbackTime = '') {
+  if (!timestamp) return fallbackTime || '';
+  const date = new Date(timestamp);
+  return !isNaN(date.getTime())
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : (fallbackTime || '');
+}
+
 // Broadcast Event Feed update
 function renderLogEntry(entry) {
   if (!entry || !entry.message) return;
@@ -3284,11 +3300,13 @@ function renderLogEntry(entry) {
     finish: 'border-l-4 border-yellow-400 bg-[#161408]'
   };
 
+  const displayTime = formatLogTime(entry.timestamp, entry.time);
+
   row.className = `p-2.5 rounded-xl border border-white/5 my-1 text-xs transition duration-200 ${typeBorders[entry.type] || 'bg-[#080d1e]'}`;
   row.innerHTML = `
     <div class="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
-      <span class="font-mono">${entry.time || ''}</span>
-      <span class="font-display font-bold uppercase tracking-wider text-slate-400">${entry.type || 'INFO'}</span>
+      <span class="font-mono">${escapeHtml(displayTime)}</span>
+      <span class="font-display font-bold uppercase tracking-wider text-slate-400">${escapeHtml(entry.type || 'INFO')}</span>
     </div>
     <div class="font-sans text-slate-200 leading-snug">
       ${typeIcons[entry.type] || ''}${escapeHtml(entry.message)}
@@ -3594,9 +3612,9 @@ function registerSocketAuctionListeners(s) {
         auctionTimer.classList.add('timer-panic');
         if (panicScreenVignette) panicScreenVignette.classList.remove('hidden');
         playBeep(880, 'square', 0.08);
-        if (seconds === 3) speakCommentary('Going once!');
-        else if (seconds === 2) speakCommentary('Going twice!');
-        else if (seconds === 1) speakCommentary('Final call!');
+        if (seconds === 3) speakCommentary('Going once!', true);
+        else if (seconds === 2) speakCommentary('Going twice!', true);
+        else if (seconds === 1) speakCommentary('Final call!', true);
       } else if (seconds <= 7) {
         auctionTimer.classList.remove('timer-panic', 'text-slate-300');
         auctionTimer.classList.add('text-amber-400');
@@ -3787,7 +3805,7 @@ function registerSocketAuctionListeners(s) {
     playerSoldWatermark.classList.add('stamp-sold-anim');
 
     const priceText = (price / 10000000).toFixed(2);
-    speakCommentary(`Sold! ${player.name} is sold to ${team.name} for ${priceText} Crores!`);
+    speakCommentary(`Sold! ${player.name} is sold to ${team.name} for ${priceText} Crores!`, true);
 
     if (myTeam && team && myTeam.franchiseId === team.franchiseId) {
       if (!myTeam.squad) myTeam.squad = [];
@@ -3821,7 +3839,7 @@ function registerSocketAuctionListeners(s) {
 
     playerUnsoldWatermark.classList.remove('hidden');
     playerUnsoldWatermark.classList.add('stamp-sold-anim');
-    speakCommentary(`No bids received. ${player.name} goes unsold.`);
+    speakCommentary(`No bids received. ${player.name} goes unsold.`, true);
 
     // Direct to Live Match Activity Wire without screen-covering toast
     updateMatchActivityWire(`❌ ${player.name} went UNSOLD at base price ₹${(player.basePrice / 10000000).toFixed(2)} Cr`, 'unsold');
@@ -3841,10 +3859,10 @@ function registerSocketAuctionListeners(s) {
     updateBidButton();
 
     if (highestBidder) {
-      speakCommentary(`All remaining teams have folded! ${player.name} is sold early to ${highestBidder.teamName}!`);
+      speakCommentary(`All remaining teams have folded! ${player.name} is sold early to ${highestBidder.teamName}!`, true);
       updateMatchActivityWire(`⚡ All teams folded! Hammer falls early: ${player.name} to ${highestBidder.teamName}`, 'sold');
     } else {
-      speakCommentary(`All teams have folded without any bids. ${player.name} goes unsold.`);
+      speakCommentary(`All teams have folded without any bids. ${player.name} goes unsold.`, true);
       updateMatchActivityWire(`⚡ All teams folded! ${player.name} passed unsold`, 'unsold');
     }
   });
