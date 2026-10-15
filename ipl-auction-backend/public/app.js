@@ -378,25 +378,25 @@ async function copyRoomInvite(roomCode) {
 
 function extractRoomCodeFromUrl() {
   const urlParams = new URLSearchParams(window.location.search);
-  const queryRoom = urlParams.get('room');
-  if (queryRoom) return queryRoom.trim().toUpperCase();
+  let code = urlParams.get('room') || '';
 
-  // Path-based fallback (e.g., /room/AUCT8 or /auction/AUCT8 or /lobby/AUCT8)
-  const pathParts = window.location.pathname.split('/').filter(Boolean);
-  const roomIndex = pathParts.indexOf('room');
-  if (roomIndex !== -1 && pathParts[roomIndex + 1]) {
-    return pathParts[roomIndex + 1].trim().toUpperCase();
-  }
-
-  // Also check if last part of path is a 5-char code (e.g. /room/5AYZL)
-  if (pathParts.length > 0) {
-    const lastPart = pathParts[pathParts.length - 1].trim().toUpperCase();
-    if (lastPart.length === 5 && /^[A-Z0-9]{5}$/.test(lastPart)) {
-      return lastPart;
+  if (!code) {
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    const roomIdx = pathParts.indexOf('room');
+    if (roomIdx !== -1 && pathParts[roomIdx + 1]) {
+      code = pathParts[roomIdx + 1];
+    } else if (pathParts.length > 0) {
+      const lastPart = pathParts[pathParts.length - 1];
+      const cleanCandidate = lastPart.replace(/[^a-zA-Z0-9]/g, '');
+      if (cleanCandidate.length === 5) {
+        code = cleanCandidate;
+      }
     }
   }
 
-  return null;
+  // Strip '#' or other URL characters
+  const clean = code.replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
+  return clean || null;
 }
 
 // Global Click Delegation on Document for Voice, Cheer, Settings & Copy
@@ -1578,8 +1578,11 @@ btnSubmitCreateRoom.addEventListener('click', () => {
 
 // Join Room Action (Manager or Spectator)
 function joinRoomAction(asSpectator = false) {
-  const roomCode = inputJoinRoomCode.value.trim().toUpperCase();
-  if (!roomCode) return showToast('Please enter room code', 'warning');
+  const rawInput = (inputJoinRoomCode ? inputJoinRoomCode.value : '') || '';
+  const roomCode = rawInput.replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
+  if (inputJoinRoomCode) inputJoinRoomCode.value = roomCode;
+
+  if (!roomCode || roomCode.length < 3) return showToast('Please enter a valid room code.', 'warning');
 
   const sessions = getActiveSessions();
   if (Object.keys(sessions).length >= 3 && !sessions[roomCode]) {
@@ -1587,7 +1590,7 @@ function joinRoomAction(asSpectator = false) {
     return;
   }
 
-  const mName = (inputManagerName ? inputManagerName.value : 'Player').trim();
+  const mName = (inputManagerName && inputManagerName.value ? inputManagerName.value : 'Player').trim();
   if (Object.values(sessions).some(s => s.roomCode !== roomCode && s.managerName.toLowerCase() === mName.toLowerCase())) {
     showToast(`Handle "${mName}" is already active in another match. Please use a unique alias.`, 'warning');
     return;
@@ -1615,7 +1618,18 @@ function joinRoomAction(asSpectator = false) {
   const performJoin = () => {
     const pId = getOrCreatePlayerId();
     const token = getActiveSessionToken(roomCode);
-    socket.emit('join_room', { roomCode, managerName: mName, sessionToken: token, asSpectator }, (res) => {
+    const payload = {
+      roomCode,
+      roomId: roomCode,
+      code: roomCode,
+      playerName: mName,
+      managerName: mName,
+      playerId: pId,
+      sessionToken: token,
+      asSpectator: !!asSpectator
+    };
+
+    socket.emit('join_room', payload, (res) => {
       clearTimeout(timeout);
       if (activeBtn) {
         activeBtn.disabled = false;
@@ -1623,15 +1637,15 @@ function joinRoomAction(asSpectator = false) {
       }
 
       if (res && res.success) {
-        currentRoom = res.roomState;
+        currentRoom = res.roomState || res.room;
         if (currentRoom && currentRoom.lotVersion) currentLotVersion = currentRoom.lotVersion;
-        isHost = (currentRoom.hostPlayerId === pId || currentRoom.hostId === socket.id);
-        currentRole = res.role || (asSpectator || currentRoom.isStarted ? 'spectator' : 'manager');
+        isHost = !!(currentRoom && (currentRoom.hostPlayerId === pId || currentRoom.hostId === socket.id));
+        currentRole = res.role || (asSpectator || (currentRoom && currentRoom.isStarted) ? 'spectator' : 'manager');
         myTeam = null;
 
-        saveActiveSession(roomCode, mName, null, res.sessionToken, currentRole, pId);
+        saveActiveSession(roomCode, mName, null, res.sessionToken || token, currentRole, pId);
 
-        if (currentRole === 'spectator' || currentRoom.isStarted) {
+        if (currentRole === 'spectator' || (currentRoom && currentRoom.isStarted)) {
           navigate('auction', roomCode, true);
           updateAuctionView(currentRoom);
           showToast(`Joined Arena [${roomCode}] as Spectator! 👓`, 'info');
@@ -1642,7 +1656,7 @@ function joinRoomAction(asSpectator = false) {
         }
         updateSpectatorButtonLabels();
       } else {
-        showToast(res ? res.error : 'Room not found', 'error');
+        showToast(res ? (res.error || res.message) : 'Room not found. Check code.', 'error');
       }
     });
   };
@@ -4014,9 +4028,34 @@ function registerSocketAuctionListeners(s) {
     }
   });
 
+  // Join Success (Event Fallback)
+  s.on('join_success', (data) => {
+    if (!data) return;
+    const roomState = data.room || data.roomState;
+    if (roomState) {
+      currentRoom = roomState;
+      if (currentRoom.lotVersion) currentLotVersion = currentRoom.lotVersion;
+    }
+    const rCode = data.roomCode || (currentRoom && currentRoom.code);
+    const pId = data.playerId || getOrCreatePlayerId();
+    isHost = !!(currentRoom && (currentRoom.hostPlayerId === pId || currentRoom.hostId === s.id));
+    currentRole = data.role || (currentRoom && currentRoom.isStarted ? 'spectator' : 'manager');
+    if (data.sessionToken && rCode) {
+      saveActiveSession(rCode, data.playerName || 'Player', null, data.sessionToken, currentRole, pId);
+    }
+    if (currentRole === 'spectator' || (currentRoom && currentRoom.isStarted)) {
+      navigate('auction', rCode, true);
+      if (currentRoom) updateAuctionView(currentRoom);
+    } else {
+      navigate('lobby', rCode, true);
+      setupLobby();
+    }
+    updateSpectatorButtonLabels();
+  });
+
   // Unique Name Conflict Error
   s.on('join_error', ({ message }) => {
-    showToast(message || 'Name already taken in this room.', 'error');
+    showToast(message || 'Could not join room. Check code.', 'error');
   });
 }
 
