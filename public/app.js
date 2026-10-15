@@ -696,6 +696,11 @@ function calculateIncrement(currentBid) {
   return 10000000;
 }
 
+function calculateNextBid(currentBid) {
+  if (!currentBid) return 10000000;
+  return currentBid + calculateIncrement(currentBid);
+}
+
 // DOM Elements
 const viewWelcome = document.getElementById('viewWelcome');
 const viewLobby = document.getElementById('viewLobby');
@@ -2448,120 +2453,174 @@ function updateAuctionView(room) {
   updateBidButton();
 }
 
+// Centralized Authoritative BID & FOLD Button State Renderer
+function renderBidButtonState(lot, myTeam, myTeamId) {
+  const bidBtn = document.getElementById('btn-place-bid') || btnPlaceBid;
+  const foldBtn = document.getElementById('btn-fold') || btnFoldPlayer;
+  if (!bidBtn) return;
+
+  if (!myTeam || currentRole === 'spectator') {
+    bidBtn.disabled = true;
+    bidBtn.classList.remove(
+      'bg-emerald-600', 'hover:bg-emerald-500', 'border-emerald-400', 'text-white',
+      'from-emerald-500', 'to-emerald-400', 'ring-2', 'ring-emerald-400', 'border',
+      'from-slate-700', 'to-slate-800'
+    );
+    bidBtn.classList.add('opacity-40', 'pointer-events-none');
+    bidBtn.innerHTML = `<span>👓</span> <span id="bid-btn-text">SPECTATOR VIEW</span>`;
+    if (foldBtn) {
+      foldBtn.disabled = true;
+      foldBtn.classList.add('opacity-50', 'pointer-events-none');
+    }
+    return;
+  }
+
+  const effectiveTeamId = myTeamId || (myTeam && (myTeam.franchiseId || myTeam.id)) || window.myTeamId;
+  const highestTeamId = (lot && lot.highestBidderTeamId) || (lot && lot.highestBidder && lot.highestBidder.teamId) || (currentRoom && currentRoom.highestBidder && currentRoom.highestBidder.teamId) || null;
+  const hasOpening = Boolean(lot && (lot.hasOpeningBid !== undefined ? lot.hasOpeningBid : (lot.highestBidder || (currentRoom && currentRoom.highestBidder))));
+
+  const totalTeams = (currentRoom && currentRoom.teams) ? (Array.isArray(currentRoom.teams) ? currentRoom.teams.length : Object.keys(currentRoom.teams).length) : 0;
+  const isSoloTesting = totalTeams <= 1;
+
+  const isLeading = Boolean(hasOpening && highestTeamId && highestTeamId === effectiveTeamId && !isSoloTesting);
+  const foldedList = (currentRoom && currentRoom.foldedTeams) || [];
+  const isFolded = Boolean(myTeam && (myTeam.isFolded || (Array.isArray(foldedList) && foldedList.includes(effectiveTeamId))));
+
+  // 1. Reset base styling classes
+  bidBtn.classList.remove(
+    'bg-emerald-600', 'hover:bg-emerald-500', 'border-emerald-400', 'text-white',
+    'from-emerald-500', 'to-emerald-400', 'ring-2', 'ring-emerald-400', 'border',
+    'from-slate-700', 'to-slate-800', 'text-slate-950',
+    'opacity-40', 'opacity-50', 'pointer-events-none', 'cursor-not-allowed'
+  );
+
+  // 2. State: User Has Folded on This Lot
+  if (isFolded) {
+    bidBtn.disabled = true;
+    bidBtn.classList.add('opacity-40', 'pointer-events-none', 'cursor-not-allowed');
+    bidBtn.innerHTML = `<span>🔨</span> <span id="bid-btn-text">FOLDED</span>`;
+
+    if (foldBtn) {
+      foldBtn.disabled = true;
+      foldBtn.classList.add('opacity-50', 'pointer-events-none');
+      foldBtn.innerHTML = `<span>✋</span> <span>FOLDED</span>`;
+    }
+    if (bidStatusNotice) {
+      bidStatusNotice.textContent = 'You have folded for this player and cannot bid.';
+      bidStatusNotice.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // 3. State: User is Currently the Highest Bidder
+  if (isLeading) {
+    bidBtn.disabled = true;
+    bidBtn.classList.add('bg-emerald-600', 'text-white', 'border', 'border-emerald-400', 'pointer-events-none');
+    bidBtn.innerHTML = `<span>✅</span> <span id="bid-btn-text">HIGHEST BIDDER</span>`;
+
+    if (foldBtn) {
+      foldBtn.disabled = true;
+      foldBtn.classList.add('opacity-40', 'pointer-events-none');
+      foldBtn.classList.remove('opacity-50');
+      foldBtn.innerHTML = `<span>✋</span> <span>LEADING</span>`;
+      foldBtn.title = 'Highest bidder cannot fold against their own bid!';
+    }
+    if (bidStatusNotice) bidStatusNotice.classList.add('hidden');
+    return;
+  }
+
+  // 4. State: Active Bidding / Opening Bid Available
+  bidBtn.disabled = false;
+  bidBtn.classList.add(
+    'bg-gradient-to-r', 'from-amber-500', 'via-amber-400', 'to-yellow-500',
+    'hover:from-amber-400', 'hover:to-yellow-400', 'text-black', 'font-black'
+  );
+
+  let targetAmount;
+  if (!hasOpening) {
+    // Fresh Lot: Must display OPEN BID with the base price
+    const openingAmount = (lot && (lot.currentBid || lot.basePrice)) || (currentRoom && currentRoom.currentPlayer && currentRoom.currentPlayer.basePrice) || 10000000;
+    targetAmount = openingAmount;
+    const formattedPrice = typeof formatCurrency === 'function' ? formatCurrency(openingAmount) : `₹${(openingAmount / 10000000).toFixed(2)} Cr`;
+    bidBtn.innerHTML = `<span>🔨</span> <span id="bid-btn-text">OPEN BID (${formattedPrice})</span>`;
+  } else {
+    // Active Bidding: Display the next bid increment
+    const currentBid = (lot && lot.currentBid) || (currentRoom && currentRoom.currentBid) || 0;
+    const nextAmount = typeof calculateNextBid === 'function' ? calculateNextBid(currentBid) : (currentBid + 2500000);
+    targetAmount = nextAmount;
+    const formattedNext = typeof formatCurrency === 'function' ? formatCurrency(nextAmount) : `₹${(nextAmount / 10000000).toFixed(2)} Cr`;
+    bidBtn.innerHTML = `<span>🔨</span> <span id="bid-btn-text">BID ${formattedNext}</span>`;
+  }
+
+  // Pre-check constraints (purse, squad limits, cooldown)
+  let cannotBidReason = null;
+  if (myTeam.purse !== undefined && myTeam.purse < targetAmount) {
+    cannotBidReason = `Insufficient purse! Needed ${typeof formatCurrency === 'function' ? formatCurrency(targetAmount) : targetAmount}`;
+  } else if (currentRoom && currentRoom.settings && myTeam.squadCount >= currentRoom.settings.maxSquadSize) {
+    cannotBidReason = `Squad full (${currentRoom.settings.maxSquadSize} players)`;
+  } else if (currentRoom && currentRoom.currentPlayer && currentRoom.currentPlayer.isOverseas && currentRoom.settings && myTeam.overseasCount >= currentRoom.settings.maxOverseas) {
+    cannotBidReason = `Overseas slots full (${currentRoom.settings.maxOverseas} max)`;
+  }
+
+  if (cannotBidReason) {
+    bidBtn.disabled = true;
+    bidBtn.classList.add('opacity-40', 'cursor-not-allowed');
+    if (bidStatusNotice) {
+      bidStatusNotice.textContent = cannotBidReason;
+      bidStatusNotice.classList.remove('hidden');
+    }
+  } else if (typeof isBidCooldown !== 'undefined' && isBidCooldown) {
+    bidBtn.disabled = true;
+  } else {
+    if (bidStatusNotice) bidStatusNotice.classList.add('hidden');
+  }
+
+  // Ensure fold button is enabled if user is not folded and not leading
+  if (foldBtn && !isFolded && !isLeading) {
+    foldBtn.disabled = false;
+    foldBtn.classList.remove('opacity-40', 'opacity-50', 'pointer-events-none');
+    foldBtn.classList.add('bg-red-950/60', 'text-red-400');
+    foldBtn.innerHTML = `<span>✋</span> <span>FOLD</span>`;
+    foldBtn.title = 'Pass / Fold on this player';
+  }
+
+  // Update consensus fold status bar
+  const foldCountDisplay = document.getElementById('footer-folds') || document.getElementById('foldCountDisplay');
+  const foldStatusHint = document.getElementById('foldStatusHint');
+  if (currentRoom) {
+    const foldedCount = currentRoom.foldedCount || (currentRoom.foldedTeams ? currentRoom.foldedTeams.length : 0);
+    const requiredFolds = currentRoom.requiredFolds || (currentRoom.teams ? Math.max((Array.isArray(currentRoom.teams) ? currentRoom.teams.length : Object.keys(currentRoom.teams).length) - 1, 1) : 1);
+    if (foldCountDisplay) foldCountDisplay.textContent = `${foldedCount}/${requiredFolds} Teams`;
+    if (foldStatusHint) {
+      if (foldedCount > 0 && foldedCount < requiredFolds) {
+        foldStatusHint.textContent = `${requiredFolds - foldedCount} more needed for instant hammer`;
+      } else if (foldedCount >= requiredFolds && requiredFolds > 0) {
+        foldStatusHint.textContent = `All teams folded! Hammer falling...`;
+      } else {
+        foldStatusHint.textContent = `Instant hammer if all pass`;
+      }
+    }
+  }
+}
+
 // Update BID button labels and pre-checks
 function updateBidButton() {
   if (!currentRoom || !currentRoom.currentPlayer) return;
 
-  const currentBid = currentRoom.currentBid;
-  let nextAmount;
-  let inc;
+  const effId = myTeamId || (myTeam && (myTeam.franchiseId || myTeam.id)) || window.myTeamId;
+  const hasOpening = Boolean(currentRoom.highestBidder);
+  const highestBidderTeamId = currentRoom.highestBidder ? currentRoom.highestBidder.teamId : null;
 
-  if (!currentRoom.highestBidder) {
-    nextAmount = currentRoom.currentPlayer.basePrice;
-    inc = 0;
-    bidButtonText.innerHTML = `<span>🔨 OPEN BID (${formatCurrency(nextAmount).toUpperCase()})</span>`;
-  } else {
-    inc = calculateIncrement(currentBid);
-    nextAmount = currentBid + inc;
-    const incLabel = inc >= 10000000 ? `+₹${(inc / 10000000).toFixed(2)} Cr` : `+${(inc / 100000).toFixed(0)}L`;
-    bidButtonText.innerHTML = `<span>🔨 BID ${formatCurrency(nextAmount)}</span> <span class="text-xs font-mono font-bold opacity-80">(${incLabel})</span>`;
-  }
+  const lot = {
+    currentBid: currentRoom.currentBid,
+    basePrice: currentRoom.currentPlayer.basePrice,
+    hasOpeningBid: hasOpening,
+    highestBidderTeamId: highestBidderTeamId,
+    highestBidder: currentRoom.highestBidder,
+    lotVersion: currentLotVersion
+  };
 
-  bidStatusNotice.classList.add('hidden');
-  btnPlaceBid.disabled = false;
-  btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
-  btnPlaceBid.classList.add('from-amber-500', 'to-amber-400');
-
-  let cannotBidReason = null;
-  if (!myTeam) {
-    cannotBidReason = 'Select a team first to place bids';
-  } else if (currentRoom.highestBidder && (currentRoom.highestBidder.socketId === socket.id || currentRoom.highestBidder.teamId === myTeam.franchiseId)) {
-    // Leading bidder state handled separately
-  } else if (myTeam.purse < nextAmount) {
-    cannotBidReason = `Insufficient purse! Needed ${formatCurrency(nextAmount)}`;
-  } else if (myTeam.squadCount >= currentRoom.settings.maxSquadSize) {
-    cannotBidReason = `Squad full (${currentRoom.settings.maxSquadSize} players)`;
-  } else if (currentRoom.currentPlayer.isOverseas && myTeam.overseasCount >= currentRoom.settings.maxOverseas) {
-    cannotBidReason = `Overseas slots full (${currentRoom.settings.maxOverseas} max)`;
-  }
-
-  // Configure Bid Button State
-  const totalTeams = (currentRoom && currentRoom.teams) ? currentRoom.teams.length : 0;
-  const isSoloTesting = totalTeams <= 1;
-
-  const isHighestBidder = !isSoloTesting && currentRoom && currentRoom.highestBidder && myTeam && 
-    (currentRoom.highestBidder.socketId === (socket ? socket.id : null) || currentRoom.highestBidder.teamId === myTeam.franchiseId);
-
-  const foldedList = (currentRoom && currentRoom.foldedTeams) || [];
-  const hasFolded = myTeam && foldedList.includes(myTeam.franchiseId);
-
-  if (isHighestBidder) {
-    btnPlaceBid.disabled = true;
-    btnPlaceBid.classList.remove('from-amber-500', 'to-amber-400', 'from-amber-600', 'to-amber-500', 'opacity-40', 'pointer-events-none');
-    btnPlaceBid.classList.add('from-emerald-500', 'to-emerald-400', 'text-slate-950', 'ring-2', 'ring-emerald-400');
-    bidButtonText.innerHTML = `<span>✅ HIGHEST BIDDER</span>`;
-  } else if (hasFolded) {
-    // STRICT RULE: Once folded, permanently blocked from bidding on this player
-    btnPlaceBid.disabled = true;
-    btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'from-amber-500', 'to-amber-400', 'from-amber-600', 'to-amber-500');
-    btnPlaceBid.classList.add('opacity-40', 'pointer-events-none');
-    bidStatusNotice.textContent = 'You have folded for this player and cannot bid.';
-    bidStatusNotice.classList.remove('hidden');
-  } else if (cannotBidReason) {
-    btnPlaceBid.disabled = true;
-    btnPlaceBid.classList.remove('from-slate-700', 'to-slate-800', 'from-amber-500', 'to-amber-400');
-    btnPlaceBid.classList.add('opacity-40');
-    bidStatusNotice.textContent = cannotBidReason;
-    bidStatusNotice.classList.remove('hidden');
-  } else if (isBidCooldown) {
-    btnPlaceBid.disabled = true;
-  } else {
-    // Eligible to bid
-    btnPlaceBid.disabled = false;
-    btnPlaceBid.classList.remove('from-emerald-500', 'to-emerald-400', 'from-slate-700', 'to-slate-800', 'from-amber-600', 'to-amber-500', 'opacity-40', 'opacity-50', 'pointer-events-none', 'text-slate-950', 'ring-2', 'ring-emerald-400');
-    btnPlaceBid.classList.add('from-amber-500', 'to-amber-400');
-    if (isSoloTesting && currentRoom.highestBidder) {
-      const incLabel = inc >= 10000000 ? `+₹${(inc / 10000000).toFixed(2)} Cr` : `+${(inc / 100000).toFixed(0)}L`;
-      bidButtonText.innerHTML = `<span>🔨</span> <span>RAISE BID ${formatCurrency(nextAmount)}</span> <span class="text-xs font-mono font-bold opacity-80">(${incLabel})</span>`;
-    }
-  }
-
-  // Update Fold button state (Rule 1 & 3: Cannot fold if leading; if folded, permanently FOLDED for this player)
-  if (!myTeam || !currentRoom || !currentRoom.currentPlayer) {
-    btnFoldPlayer.disabled = true;
-    btnFoldPlayer.classList.add('opacity-40', 'pointer-events-none');
-  } else if (isHighestBidder) {
-    btnFoldPlayer.disabled = true;
-    if (foldButtonText) foldButtonText.textContent = 'LEADING';
-    btnFoldPlayer.classList.add('opacity-40', 'pointer-events-none');
-    btnFoldPlayer.classList.remove('opacity-50');
-    btnFoldPlayer.title = 'Highest bidder cannot fold against their own bid!';
-  } else if (hasFolded) {
-    btnFoldPlayer.disabled = true;
-    if (foldButtonText) foldButtonText.innerHTML = `<span>✋</span> <span>FOLDED</span>`;
-    btnFoldPlayer.classList.add('opacity-50', 'pointer-events-none');
-    btnFoldPlayer.classList.remove('opacity-40');
-    btnFoldPlayer.title = 'You have folded for this player and cannot bid.';
-  } else {
-    btnFoldPlayer.disabled = false;
-    if (foldButtonText) foldButtonText.innerHTML = `<span>✋</span> <span>FOLD</span>`;
-    btnFoldPlayer.classList.remove('opacity-40', 'opacity-50', 'pointer-events-none', 'border-emerald-500/50', 'text-emerald-400', 'border-cyan-500/50', 'text-cyan-400');
-    btnFoldPlayer.title = 'Pass / Fold on this player';
-  }
-
-  // Update consensus fold status bar
-  const foldedCount = currentRoom.foldedCount || 0;
-  const requiredFolds = currentRoom.requiredFolds || (currentRoom.teams ? Math.max(currentRoom.teams.length - 1, 1) : 1);
-  if (foldCountDisplay) foldCountDisplay.textContent = `${foldedCount}/${requiredFolds} Teams`;
-  if (foldStatusHint) {
-    if (foldedCount > 0 && foldedCount < requiredFolds) {
-      foldStatusHint.textContent = `${requiredFolds - foldedCount} more needed for instant hammer`;
-    } else if (foldedCount >= requiredFolds && requiredFolds > 0) {
-      foldStatusHint.textContent = `All teams folded! Hammer falling...`;
-    } else {
-      foldStatusHint.textContent = `Instant hammer if all pass`;
-    }
-  }
+  renderBidButtonState(lot, myTeam, effId);
 }
 
 // FOLD BUTTON CLICK HANDLER (Strict Per-Player Fold)
@@ -3770,7 +3829,20 @@ function registerSocketAuctionListeners(s) {
     }
 
     playBidSound();
-    updateBidButton();
+
+    const activeLot = {
+      currentBid: currentBid,
+      basePrice: (currentRoom && currentRoom.currentPlayer && currentRoom.currentPlayer.basePrice) || currentBid,
+      hasOpeningBid: true,
+      highestBidderTeamId: highestBidder ? highestBidder.teamId : null,
+      highestBidder: highestBidder,
+      lotVersion: currentLotVersion
+    };
+    if (currentRoom) {
+      currentRoom.currentLot = activeLot;
+    }
+    const effBidId = myTeamId || (myTeam && (myTeam.franchiseId || myTeam.id)) || window.myTeamId;
+    renderBidButtonState(activeLot, myTeam, effBidId);
 
     // Update Live Match Activity Wire with latest bid
     const bidderTag = highestBidder ? highestBidder.teamId : 'TEAM';
@@ -3779,6 +3851,13 @@ function registerSocketAuctionListeners(s) {
     // Commentary voice on major or new bids
     const priceText = (currentBid / 10000000).toFixed(2);
     speakCommentary(`${highestBidder.teamId} raises the bid to ${priceText} Crores!`);
+  });
+
+  s.on('bid_updated', (data) => {
+    if (!data) return;
+    const lot = (data && data.lot) || (currentRoom && currentRoom.currentLot) || data || {};
+    const effId = myTeamId || (myTeam && (myTeam.franchiseId || myTeam.id)) || window.myTeamId;
+    renderBidButtonState(lot, myTeam, effId);
   });
 
   s.on('team_folded', ({ teamId, foldedCount, totalEligible }) => {
@@ -3805,46 +3884,73 @@ function registerSocketAuctionListeners(s) {
     updateMatchActivityWire(`✋ ${teamId} has folded for this player`, 'fold');
   });
 
-  s.on('new_lot_started', ({ player, lot, teams }) => {
-    // Fresh lot arrival: complete reset of fold registry (Strict Rule 4)
+  s.on('new_lot_started', (data) => {
+    const lot = (data && data.lot) ? data.lot : (data || {});
     if (lot && lot.lotVersion !== undefined) {
       currentLotVersion = lot.lotVersion;
     } else {
       currentLotVersion = 1;
     }
+
+    if (data.teams && currentRoom) {
+      currentRoom.teams = Array.isArray(data.teams) ? data.teams : Object.values(data.teams);
+    }
+
     if (currentRoom) {
       currentRoom.foldedTeams = [];
       currentRoom.foldedCount = 0;
       currentRoom.lotVersion = currentLotVersion;
-      if (player) currentRoom.currentPlayer = player;
-      if (lot) {
-        if (lot.currentBid !== undefined) currentRoom.currentBid = lot.currentBid;
-        if (lot.auctionIndex !== undefined) currentRoom.auctionIndex = lot.auctionIndex;
-        if (lot.highestBidder !== undefined) currentRoom.highestBidder = lot.highestBidder;
-      }
-      if (teams && Array.isArray(teams)) {
-        currentRoom.teams = teams;
-        if (myTeam) {
-          const fresh = teams.find(t => t.franchiseId === myTeam.franchiseId || t.socketId === s.id);
-          if (fresh) myTeam = fresh;
-        }
-      }
+      currentRoom.highestBidder = null;
+      currentRoom.openingBidPlaced = false;
+      currentRoom.currentLot = lot;
+
+      if (data.player) currentRoom.currentPlayer = data.player;
+      if (lot.currentBid !== undefined) currentRoom.currentBid = lot.currentBid;
+      if (lot.auctionIndex !== undefined) currentRoom.auctionIndex = lot.auctionIndex;
     }
+
+    const effId = myTeamId || (myTeam && (myTeam.franchiseId || myTeam.id)) || window.myTeamId;
+    if (currentRoom && currentRoom.teams) {
+      const fresh = Array.isArray(currentRoom.teams)
+        ? currentRoom.teams.find(t => (t.franchiseId || t.id) === effId || t.socketId === s.id)
+        : (currentRoom.teams[effId] || Object.values(currentRoom.teams).find(t => (t.franchiseId || t.id) === effId));
+      if (fresh) myTeam = fresh;
+    }
+
+    // Explicitly reset the myTeam.isFolded flag for the new lot
     if (myTeam) {
       myTeam.isFolded = false;
     }
-    if (btnPlaceBid) {
-      btnPlaceBid.disabled = false;
-      btnPlaceBid.classList.remove('opacity-40', 'opacity-50', 'pointer-events-none');
+
+    // Ensure fresh lot defaults: no opening bid, no highest bidder
+    lot.hasOpeningBid = false;
+    lot.highestBidderTeamId = null;
+    lot.highestBidder = null;
+    if (!lot.basePrice && currentRoom && currentRoom.currentPlayer) {
+      lot.basePrice = currentRoom.currentPlayer.basePrice;
     }
-    if (btnFoldPlayer) {
-      btnFoldPlayer.disabled = false;
-      btnFoldPlayer.classList.remove('opacity-40', 'opacity-50', 'pointer-events-none');
-      if (foldButtonText) foldButtonText.innerHTML = `<span>✋</span> <span>FOLD</span>`;
+    if (!lot.currentBid) {
+      lot.currentBid = lot.basePrice;
     }
+
+    // Reset highest bidder header display
+    if (highestBidderName) highestBidderName.textContent = 'WAITING FOR BID';
+    if (leadingBidderDot) leadingBidderDot.className = 'w-2 h-2 rounded-full bg-slate-500 inline-block';
+    if (highestBidderLogoImg) highestBidderLogoImg.classList.add('hidden');
+    if (highestBidderPlaceholderIcon) highestBidderPlaceholderIcon.classList.remove('hidden');
+    if (highestBidderBadge) {
+      highestBidderBadge.style.backgroundColor = '#334155';
+      highestBidderBadge.classList.remove('scale-105', 'border-amber-400');
+    }
+    if (currentBidAmount && currentRoom && currentRoom.currentBid) {
+      currentBidAmount.textContent = formatCurrency(currentRoom.currentBid);
+    }
+
     if (playerSoldWatermark) playerSoldWatermark.classList.add('hidden');
     if (playerUnsoldWatermark) playerUnsoldWatermark.classList.add('hidden');
-    updateBidButton();
+
+    // Cleanly render the fresh button state
+    renderBidButtonState(lot, myTeam, effId);
     updateSquadDisplay(myTeam, currentRoom ? currentRoom.settings : null);
   });
 
