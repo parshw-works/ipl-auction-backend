@@ -345,6 +345,60 @@ function performSessionCleanupBeforeNewMatch() {
   executeLeaveMatch();
 }
 
+// =========================================================================
+// BULLETPROOF INVITE LINK GENERATOR & ROUTE EXTRACTOR (Mission: Shared Links)
+// =========================================================================
+function getShareableRoomLink(roomCode) {
+  const cleanOrigin = window.location.origin.replace(/\/$/, '');
+  // Standard query parameter format works universally on all hosts
+  return `${cleanOrigin}/?room=${encodeURIComponent(roomCode)}`;
+}
+
+async function copyRoomInvite(roomCode) {
+  if (!roomCode) return;
+  const shareUrl = getShareableRoomLink(roomCode);
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(shareUrl);
+    } else {
+      // Fallback for non-secure contexts or mobile webviews
+      const tempInput = document.createElement('input');
+      tempInput.value = shareUrl;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+    }
+    showToast(`Invite link copied: #${roomCode} 📋`, 'success');
+  } catch (err) {
+    console.error('Copy failed, showing prompt fallback:', err);
+    prompt('Copy this invite link:', shareUrl);
+  }
+}
+
+function extractRoomCodeFromUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const queryRoom = urlParams.get('room');
+  if (queryRoom) return queryRoom.trim().toUpperCase();
+
+  // Path-based fallback (e.g., /room/AUCT8 or /auction/AUCT8 or /lobby/AUCT8)
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const roomIndex = pathParts.indexOf('room');
+  if (roomIndex !== -1 && pathParts[roomIndex + 1]) {
+    return pathParts[roomIndex + 1].trim().toUpperCase();
+  }
+
+  // Also check if last part of path is a 5-char code (e.g. /room/5AYZL)
+  if (pathParts.length > 0) {
+    const lastPart = pathParts[pathParts.length - 1].trim().toUpperCase();
+    if (lastPart.length === 5 && /^[A-Z0-9]{5}$/.test(lastPart)) {
+      return lastPart;
+    }
+  }
+
+  return null;
+}
+
 // Global Click Delegation on Document for Voice, Cheer, Settings & Copy
 document.addEventListener('click', (e) => {
   const voiceTarget = e.target.closest('#toggleVoiceBtn, #btn-voice-toggle');
@@ -418,15 +472,15 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // Click on room badge copies code (EA FC + Legacy)
-  const roomBadgeTarget = e.target.closest('#roomBadge, #btn-copy-code, #btn-copy-code-desktop');
-  if (roomBadgeTarget && currentRoom && currentRoom.code) {
-    navigator.clipboard.writeText(currentRoom.code).then(() => {
-      showToast(`Room code [${currentRoom.code}] copied to clipboard! 📋`, 'success');
-    }).catch(() => {
-      showToast(`Room code: ${currentRoom.code}`, 'info');
-    });
-    return;
+  // Click on room badge or copy buttons copies full shareable invite link
+  const roomBadgeTarget = e.target.closest('#roomBadge, #btn-copy-code, #btn-copy-code-desktop, #btnCopyCode');
+  if (roomBadgeTarget) {
+    e.preventDefault();
+    const codeToCopy = (currentRoom && currentRoom.code) || currentRoomCode || window.currentRoomCode;
+    if (codeToCopy) {
+      copyRoomInvite(codeToCopy);
+      return;
+    }
   }
 
   // Close Any Modal via Close Button or Backdrop Click
@@ -1120,10 +1174,8 @@ function attemptSessionReentry() {
   const sessions = getActiveSessions();
   renderOngoingMatches();
 
-  // Check URL parameters for direct room link: /lobby?room=XYZ or /auction?room=XYZ
-  const params = new URLSearchParams(window.location.search);
-  const urlRoom = params.get('room');
-  const targetCode = urlRoom ? urlRoom.toUpperCase().trim() : null;
+  // Extract room code from query params (?room=XYZ) or path (/room/XYZ)
+  const targetCode = extractRoomCodeFromUrl();
 
   if (targetCode) {
     if (sessions[targetCode] && sessions[targetCode].sessionToken) {
@@ -1618,13 +1670,15 @@ if (btnSubmitJoinSpectator) {
   btnSubmitJoinSpectator.addEventListener('click', () => joinRoomAction(true));
 }
 
-// Copy Room Code
-btnCopyCode.addEventListener('click', () => {
-  if (currentRoom) {
-    navigator.clipboard.writeText(currentRoom.code);
-    showToast('Room code copied to clipboard!', 'success');
-  }
-});
+// Copy Room Invite Link
+if (btnCopyCode) {
+  btnCopyCode.addEventListener('click', () => {
+    const codeToCopy = (currentRoom && currentRoom.code) || currentRoomCode || window.currentRoomCode;
+    if (codeToCopy) {
+      copyRoomInvite(codeToCopy);
+    }
+  });
+}
 
 // Setup Lobby UI
 function setupLobby() {
@@ -3974,9 +4028,7 @@ if (socket) {
 // Initial Boot View Dispatch
 (function bootInitialView() {
   const path = window.location.pathname.toLowerCase();
-  const params = new URLSearchParams(window.location.search);
-  const qRoom = params.get('room');
-  const roomCode = qRoom ? qRoom.toUpperCase() : null;
+  const roomCode = extractRoomCodeFromUrl();
 
   let initialView = 'home';
   if (path.includes('lobby') || window.location.hash.includes('lobby')) initialView = 'lobby';
