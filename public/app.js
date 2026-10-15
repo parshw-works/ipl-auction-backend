@@ -2502,8 +2502,6 @@ function syncAllBiddingControls() {
   const myTeamObj = room.teams ? (room.teams[myFranchise] || Object.values(room.teams).find(t => String(t.franchiseId || t.teamId).toUpperCase() === myFranchise)) : null;
   const isFolded = Boolean(myTeamObj?.isFolded || foldedList.includes(myFranchise));
 
-  const isHammer = Boolean(room.phase === 'HAMMER' || room.phase === 'TRANSITION' || room.phase === 'CONCLUDED');
-
   // Query ALL bid and fold buttons across the page (both Mobile dock and Desktop sidebar)
   const bidButtons = document.querySelectorAll('#btn-place-bid, #btn-place-bid-desktop, .btn-bid, [data-action="bid"]');
   const foldButtons = document.querySelectorAll('#btn-fold, #btn-fold-desktop, .btn-fold, [data-action="fold"]');
@@ -2519,11 +2517,7 @@ function syncAllBiddingControls() {
     // Reset classes
     btn.className = "flex-1 h-13 sm:h-14 font-black text-sm sm:text-base tracking-wide rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98]";
 
-    if (isHammer) {
-      btn.disabled = true;
-      btn.classList.add('bg-slate-800', 'text-slate-500', 'cursor-not-allowed', 'opacity-50');
-      btn.innerHTML = `<span>🔨</span> <span>HAMMER</span>`;
-    } else if (isFolded) {
+    if (isFolded) {
       btn.disabled = true;
       btn.classList.add('bg-slate-800', 'text-slate-500', 'cursor-not-allowed', 'opacity-40');
       btn.innerHTML = `<span>🔨</span> <span>FOLDED</span>`;
@@ -2546,11 +2540,7 @@ function syncAllBiddingControls() {
   foldButtons.forEach(btn => {
     btn.className = "w-24 sm:w-28 h-13 sm:h-14 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1 active:scale-[0.98] transition-all";
 
-    if (isHammer) {
-      btn.disabled = true;
-      btn.classList.add('bg-slate-900', 'text-slate-600', 'cursor-not-allowed', 'opacity-50');
-      btn.innerHTML = `<span>✋</span> <span>FOLD</span>`;
-    } else if (isFolded) {
+    if (isFolded) {
       btn.disabled = true;
       btn.classList.add('bg-slate-900', 'border', 'border-slate-800', 'text-slate-500', 'opacity-40', 'cursor-not-allowed');
       btn.innerHTML = `<span>✋</span> <span>FOLDED</span>`;
