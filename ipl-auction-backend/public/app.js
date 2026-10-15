@@ -2451,32 +2451,24 @@ function updateAuctionView(room) {
   }
 
   updateBidButton();
+  syncAllBiddingControls();
 }
 
 // 1. 100% Reliable Helper to get Local User's Franchise ID
 function getLocalFranchiseId() {
-  if (window.myTeamId) return String(window.myTeamId).trim().toUpperCase();
-  if (typeof myTeamId !== 'undefined' && myTeamId) return String(myTeamId).trim().toUpperCase();
-  
-  // Read from the active franchise pill in the top header (visible in both mobile and desktop)
-  const headerBadge = document.getElementById('header-team-badge');
-  if (headerBadge && headerBadge.textContent.trim()) {
-    return headerBadge.textContent.trim().toUpperCase();
-  }
-
-  const room = window.currentRoom || (typeof currentRoom !== 'undefined' ? currentRoom : null) || (typeof roomState !== 'undefined' ? roomState : null);
-  const pId = (typeof getOrCreatePlayerId === 'function' ? getOrCreatePlayerId() : null) || window.myPlayerId || localStorage.getItem('ipl_device_player_id');
-  if (room && room.members && pId && room.members[pId]?.teamId) {
-    return String(room.members[pId].teamId).trim().toUpperCase();
+  if (typeof myTeam !== 'undefined' && myTeam && (myTeam.franchiseId || myTeam.teamId)) {
+    return String(myTeam.franchiseId || myTeam.teamId).trim().toUpperCase();
   }
   return null;
 }
 
 // 2. 100% Reliable Helper to get Leading Bidder's Franchise ID
 function getLeadingFranchiseId(lot) {
-  if (!lot) return null;
-  const raw = lot.highestBidderTeamId || (typeof lot.highestBidder === 'object' ? lot.highestBidder?.teamId : lot.highestBidder);
-  return raw ? String(raw).trim().toUpperCase() : null;
+  const room = window.currentRoom || (typeof currentRoom !== 'undefined' ? currentRoom : null);
+  const raw = lot?.highestBidderTeamId || lot?.highestBidder || room?.highestBidder;
+  if (!raw) return null;
+  if (typeof raw === 'object') return String(raw.teamId || raw.franchiseId || '').trim().toUpperCase();
+  return String(raw).trim().toUpperCase();
 }
 
 // 3. Centralized Controller that Updates ALL Bid & Fold Buttons (Mobile + Desktop)
