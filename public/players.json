@@ -255,7 +255,7 @@
   {
     "id": "p_12",
     "name": "Sisanda Magala",
-    "country": "Overseas",
+    "country": "South Africa",
     "isOverseas": true,
     "role": "Bowler",
     "tier": "Bowlers",
@@ -324,7 +324,7 @@
   {
     "id": "p_15",
     "name": "Dwaine Pretorius",
-    "country": "Overseas",
+    "country": "South Africa",
     "isOverseas": true,
     "role": "All-Rounder",
     "tier": "All-Rounders",
@@ -1773,7 +1773,7 @@
   {
     "id": "p_84",
     "name": "Johnson Charles",
-    "country": "Overseas",
+    "country": "West Indies",
     "isOverseas": true,
     "role": "Wicketkeeper",
     "tier": "Wicketkeepers",
@@ -2164,7 +2164,7 @@
   {
     "id": "p_101",
     "name": "David Wiese",
-    "country": "Overseas",
+    "country": "Namibia",
     "isOverseas": true,
     "role": "All-Rounder",
     "tier": "All-Rounders",
@@ -3360,7 +3360,7 @@
   {
     "id": "p_156",
     "name": "Jofra Archer",
-    "country": "Overseas",
+    "country": "England",
     "isOverseas": true,
     "role": "Bowler",
     "tier": "Bowlers",
@@ -3820,7 +3820,7 @@
   {
     "id": "p_179",
     "name": "Sikandar Raza",
-    "country": "Overseas",
+    "country": "Zimbabwe",
     "isOverseas": true,
     "role": "All-Rounder",
     "tier": "All-Rounders",
@@ -5566,29 +5566,6 @@
     "image": "https://img1.hscicdn.com/image/upload/f_auto/lsci/db/PICTURES/CMS/302400/302406.jpg"
   },
   {
-    "id": "p_free_2",
-    "name": "Sarfaraz Khan",
-    "country": "India",
-    "isOverseas": false,
-    "role": "Batter",
-    "tier": "Batters",
-    "basePrice": 5000000,
-    "originalTeam": "AUCTION_POOL",
-    "photo": "https://img1.hscicdn.com/image/upload/f_auto/lsci/db/PICTURES/CMS/315000/315011.jpg",
-    "stats": {
-      "matches": 28,
-      "runs": 820,
-      "average": 31.4,
-      "strikeRate": 142.5,
-      "wickets": 3,
-      "economy": 8.1,
-      "battingStyle": "Right hand Bat",
-      "bowlingStyle": "Right arm Fast"
-    },
-    "rating": 75,
-    "image": "https://img1.hscicdn.com/image/upload/f_auto/lsci/db/PICTURES/CMS/315000/315011.jpg"
-  },
-  {
     "id": "p_free_3",
     "name": "Daryl Mitchell",
     "country": "New Zealand",
@@ -5689,7 +5666,7 @@
     "tier": "Batters",
     "basePrice": 3000000,
     "originalTeam": "AUCTION_POOL",
-    "photo": "https://img1.hscicdn.com/image/upload/f_auto/lsci/db/PICTURES/CMS/356800/356834.1.png",
+    "photo": "https://www.delhicapitals.in/static-assets/images/players/ipl/68176.png?v=2.65",
     "stats": {
       "matches": 43,
       "runs": 820,
@@ -5701,7 +5678,7 @@
       "bowlingStyle": "Right arm Fast"
     },
     "rating": 77,
-    "image": "https://img1.hscicdn.com/image/upload/f_auto/lsci/db/PICTURES/CMS/356800/356834.1.png"
+    "image": "https://www.delhicapitals.in/static-assets/images/players/ipl/68176.png?v=2.65"
   },
   {
     "id": "p_free_8",
@@ -5712,7 +5689,7 @@
     "tier": "Wicketkeepers",
     "basePrice": 3000000,
     "originalTeam": "AUCTION_POOL",
-    "photo": "https://img1.hscicdn.com/image/upload/f_auto/lsci/db/PICTURES/CMS/356800/356835.1.png",
+    "photo": "https://www.delhicapitals.in/static-assets/images/players/ipl/82442.png?v=2.65",
     "stats": {
       "matches": 46,
       "runs": 820,
@@ -5724,6 +5701,6 @@
       "bowlingStyle": "Right arm Fast"
     },
     "rating": 77,
-    "image": "https://img1.hscicdn.com/image/upload/f_auto/lsci/db/PICTURES/CMS/356800/356835.1.png"
+    "image": "https://www.delhicapitals.in/static-assets/images/players/ipl/82442.png?v=2.65"
   }
 ]
