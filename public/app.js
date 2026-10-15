@@ -2218,8 +2218,64 @@ function updateAuctionView(room) {
 
     // Clean Lot Reset for the new player (Rule 4)
     if (currentRoom) {
-      currentRoom.foldedTeams = Array.isArray(room.foldedTeams) ? [...room.foldedTeams] : [];
+      currentRoom.foldedTeams = [];
       currentRoom.foldedCount = 0;
+      currentRoom.highestBidder = null;
+      currentRoom.highestBidderTeamId = null;
+      currentRoom.openingBidPlaced = false;
+      if (currentRoom.currentLot) {
+        currentRoom.currentLot.highestBidder = null;
+        currentRoom.currentLot.highestBidderTeamId = null;
+        currentRoom.currentLot.hasOpeningBid = false;
+        currentRoom.currentLot.foldedTeamIds = [];
+      }
+      if (currentRoom.teams) {
+        if (Array.isArray(currentRoom.teams)) {
+          currentRoom.teams.forEach(t => t.isFolded = false);
+        } else {
+          Object.values(currentRoom.teams).forEach(t => t.isFolded = false);
+        }
+      }
+    }
+    if (window.currentRoom) {
+      window.currentRoom.foldedTeams = [];
+      window.currentRoom.foldedCount = 0;
+      window.currentRoom.highestBidder = null;
+      window.currentRoom.highestBidderTeamId = null;
+      window.currentRoom.openingBidPlaced = false;
+      if (window.currentRoom.currentLot) {
+        window.currentRoom.currentLot.highestBidder = null;
+        window.currentRoom.currentLot.highestBidderTeamId = null;
+        window.currentRoom.currentLot.hasOpeningBid = false;
+        window.currentRoom.currentLot.foldedTeamIds = [];
+      }
+      if (window.currentRoom.teams) {
+        if (Array.isArray(window.currentRoom.teams)) {
+          window.currentRoom.teams.forEach(t => t.isFolded = false);
+        } else {
+          Object.values(window.currentRoom.teams).forEach(t => t.isFolded = false);
+        }
+      }
+    }
+    if (room) {
+      room.foldedTeams = [];
+      room.foldedCount = 0;
+      room.highestBidder = null;
+      room.highestBidderTeamId = null;
+      room.openingBidPlaced = false;
+      if (room.currentLot) {
+        room.currentLot.highestBidder = null;
+        room.currentLot.highestBidderTeamId = null;
+        room.currentLot.hasOpeningBid = false;
+        room.currentLot.foldedTeamIds = [];
+      }
+      if (room.teams) {
+        if (Array.isArray(room.teams)) {
+          room.teams.forEach(t => t.isFolded = false);
+        } else {
+          Object.values(room.teams).forEach(t => t.isFolded = false);
+        }
+      }
     }
     if (myTeam) {
       myTeam.isFolded = false;
@@ -2464,10 +2520,10 @@ function getLocalFranchiseId() {
 
 // 2. 100% Reliable Helper to get Leading Bidder's Franchise ID
 function getLeadingFranchiseId(lot) {
-  const room = window.currentRoom || (typeof currentRoom !== 'undefined' ? currentRoom : null);
-  const raw = lot?.highestBidderTeamId || lot?.highestBidder || room?.highestBidder;
+  if (!lot) return null;
+  if (lot.hasOpeningBid === false) return null;
+  const raw = lot.highestBidderTeamId || (typeof lot.highestBidder === 'object' ? (lot.highestBidder?.teamId || lot.highestBidder?.franchiseId) : lot.highestBidder);
   if (!raw) return null;
-  if (typeof raw === 'object') return String(raw.teamId || raw.franchiseId || '').trim().toUpperCase();
   return String(raw).trim().toUpperCase();
 }
 
@@ -2500,7 +2556,7 @@ function syncAllBiddingControls() {
   // Check if my team is folded on this lot
   const foldedList = Array.isArray(lot.foldedTeamIds) ? lot.foldedTeamIds.map(x => String(x).toUpperCase()) : [];
   const myTeamObj = room.teams ? (room.teams[myFranchise] || Object.values(room.teams).find(t => String(t.franchiseId || t.teamId).toUpperCase() === myFranchise)) : null;
-  const isFolded = Boolean(myTeamObj?.isFolded || foldedList.includes(myFranchise));
+  const isFolded = Boolean((myTeam && myTeam.isFolded) || myTeamObj?.isFolded || foldedList.includes(myFranchise));
 
   // Query ALL bid and fold buttons across the page (both Mobile dock and Desktop sidebar)
   const bidButtons = document.querySelectorAll('#btn-place-bid, #btn-place-bid-desktop, .btn-bid, [data-action="bid"]');
@@ -3932,22 +3988,34 @@ function registerSocketAuctionListeners(s) {
     else if (lot.name || lot.id) currentRoom.currentPlayer = lot;
 
     if (data.teams) currentRoom.teams = data.teams;
-    currentRoom.foldedTeams = Array.isArray(lot.foldedTeamIds) ? [...lot.foldedTeamIds] : [];
+    currentRoom.foldedTeams = [];
     currentRoom.foldedCount = 0;
     currentRoom.highestBidder = null;
+    currentRoom.highestBidderTeamId = null;
     currentRoom.openingBidPlaced = false;
     currentRoom.currentBid = lot.currentBid || lot.basePrice || (currentRoom.currentPlayer ? currentRoom.currentPlayer.basePrice : 10000000);
     currentLotVersion = lot.lotVersion || 1;
     currentRoom.lotVersion = currentLotVersion;
 
-    // Reset my franchise fold state for the new lot
-    const myFId = getLocalFranchiseId();
-    if (myFId && currentRoom.teams) {
-      if (currentRoom.teams[myFId]) {
-        currentRoom.teams[myFId].isFolded = false;
-      } else if (Array.isArray(currentRoom.teams)) {
-        const found = currentRoom.teams.find(t => String(t.franchiseId || t.teamId).toUpperCase() === myFId);
-        if (found) found.isFolded = false;
+    // Deterministically reset the lot object for the fresh auction
+    lot.highestBidder = null;
+    lot.highestBidderTeamId = null;
+    lot.hasOpeningBid = false;
+    lot.foldedTeamIds = [];
+
+    // Reset fold state on ALL teams for the new lot
+    if (currentRoom.teams) {
+      if (Array.isArray(currentRoom.teams)) {
+        currentRoom.teams.forEach(t => t.isFolded = false);
+      } else {
+        Object.values(currentRoom.teams).forEach(t => t.isFolded = false);
+      }
+    }
+    if (window.currentRoom && window.currentRoom.teams) {
+      if (Array.isArray(window.currentRoom.teams)) {
+        window.currentRoom.teams.forEach(t => t.isFolded = false);
+      } else {
+        Object.values(window.currentRoom.teams).forEach(t => t.isFolded = false);
       }
     }
     if (myTeam) {
@@ -3991,13 +4059,27 @@ function registerSocketAuctionListeners(s) {
 
     if (window.currentRoom) {
       window.currentRoom.phase = 'HAMMER';
+      window.currentRoom.highestBidder = null;
+      window.currentRoom.highestBidderTeamId = null;
       window.currentRoom.foldedTeams = [];
-      if (window.currentRoom.currentLot) window.currentRoom.currentLot.foldedTeamIds = [];
+      if (window.currentRoom.currentLot) {
+        window.currentRoom.currentLot.highestBidder = null;
+        window.currentRoom.currentLot.highestBidderTeamId = null;
+        window.currentRoom.currentLot.hasOpeningBid = false;
+        window.currentRoom.currentLot.foldedTeamIds = [];
+      }
     }
     if (currentRoom) {
       currentRoom.phase = 'HAMMER';
+      currentRoom.highestBidder = null;
+      currentRoom.highestBidderTeamId = null;
       currentRoom.foldedTeams = [];
-      if (currentRoom.currentLot) currentRoom.currentLot.foldedTeamIds = [];
+      if (currentRoom.currentLot) {
+        currentRoom.currentLot.highestBidder = null;
+        currentRoom.currentLot.highestBidderTeamId = null;
+        currentRoom.currentLot.hasOpeningBid = false;
+        currentRoom.currentLot.foldedTeamIds = [];
+      }
     }
     if (myTeam) myTeam.isFolded = false;
     syncAllBiddingControls();
@@ -4033,13 +4115,27 @@ function registerSocketAuctionListeners(s) {
 
     if (window.currentRoom) {
       window.currentRoom.phase = 'HAMMER';
+      window.currentRoom.highestBidder = null;
+      window.currentRoom.highestBidderTeamId = null;
       window.currentRoom.foldedTeams = [];
-      if (window.currentRoom.currentLot) window.currentRoom.currentLot.foldedTeamIds = [];
+      if (window.currentRoom.currentLot) {
+        window.currentRoom.currentLot.highestBidder = null;
+        window.currentRoom.currentLot.highestBidderTeamId = null;
+        window.currentRoom.currentLot.hasOpeningBid = false;
+        window.currentRoom.currentLot.foldedTeamIds = [];
+      }
     }
     if (currentRoom) {
       currentRoom.phase = 'HAMMER';
+      currentRoom.highestBidder = null;
+      currentRoom.highestBidderTeamId = null;
       currentRoom.foldedTeams = [];
-      if (currentRoom.currentLot) currentRoom.currentLot.foldedTeamIds = [];
+      if (currentRoom.currentLot) {
+        currentRoom.currentLot.highestBidder = null;
+        currentRoom.currentLot.highestBidderTeamId = null;
+        currentRoom.currentLot.hasOpeningBid = false;
+        currentRoom.currentLot.foldedTeamIds = [];
+      }
     }
     if (myTeam) myTeam.isFolded = false;
     syncAllBiddingControls();
