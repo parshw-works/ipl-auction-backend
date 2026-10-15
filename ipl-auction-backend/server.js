@@ -65,7 +65,14 @@ const rooms = new Map();
 const sessionRegistry = new Map();
 
 function generateSessionToken() {
-  return crypto.randomBytes(16).toString('hex');
+  return crypto.randomBytes(24).toString('hex');
+}
+
+function sanitizeName(name, defaultName = 'Player') {
+  if (!name || typeof name !== 'string') return defaultName;
+  const cleaned = name.replace(/[<>&"'\/]/g, '').trim();
+  if (cleaned.length < 2) return defaultName;
+  return cleaned.substring(0, 20);
 }
 
 // Fisher-Yates array shuffle for randomized auction player sequence
@@ -125,9 +132,10 @@ const RETENTION_COSTS = [180000000, 140000000, 110000000, 180000000, 140000000];
 // Controlled host wrap-up threshold check
 function canConcludeEarly(room) {
   if (room.status !== 'AUCTION') return false;
-  if (!room.teams || room.teams.size === 0) return false;
+  const teams = Object.values(room.teams || {});
+  if (teams.length === 0) return false;
   const minRequired = (room.settings && room.settings.minSquadSize) || 15;
-  for (const team of room.teams.values()) {
+  for (const team of teams) {
     if ((team.squad ? team.squad.length : 0) < minRequired) {
       return false;
     }
@@ -137,10 +145,10 @@ function canConcludeEarly(room) {
 
 // Victory scoring formula: Team Total Points = sum of roster player ratings
 function calculateStandings(room) {
-  const teams = Array.from(room.teams.values());
+  const teams = Object.values(room.teams || {});
   const scoredTeams = teams.map(t => {
-    const totalPoints = t.squad.reduce((sum, p) => sum + (p.rating || 75), 0);
-    const avgRating = t.squad.length > 0 ? (totalPoints / t.squad.length).toFixed(1) : '0.0';
+    const totalPoints = (t.squad || []).reduce((sum, p) => sum + (p.rating || 75), 0);
+    const avgRating = (t.squad && t.squad.length > 0) ? (totalPoints / t.squad.length).toFixed(1) : '0.0';
     return {
       ...t,
       teamId: t.franchiseId,
@@ -150,7 +158,7 @@ function calculateStandings(room) {
       color: t.color || '#334155',
       totalPoints,
       avgRating: Number(avgRating),
-      squadCount: t.squad.length
+      squadCount: (t.squad ? t.squad.length : 0)
     };
   });
 
@@ -173,6 +181,7 @@ function calculateStandings(room) {
 function triggerAuctionEndSequence(room, reason) {
   if (room.isConcluding || room.status === 'FINISHED') return;
   room.isConcluding = true;
+  room.phase = 'CONCLUDED';
   clearRoomTimer(room);
 
   addRoomLog(room, `🏁 ${reason || 'Auction concluded!'} Tallying final squad points...`, 'finish');
@@ -183,6 +192,7 @@ function triggerAuctionEndSequence(room, reason) {
 
   setTimeout(() => {
     room.status = 'FINISHED';
+    room.phase = 'CONCLUDED';
     room.currentPlayer = null;
     room.highestBidder = null;
     room.isConcluding = false;
@@ -200,7 +210,8 @@ function triggerAuctionEndSequence(room, reason) {
 
 // Trigger B check: Squad capacity / financial saturation
 function checkCapacityAndFinanceEndCondition(room) {
-  if (!room.teams || room.teams.size === 0) return false;
+  const teams = Object.values(room.teams || {});
+  if (teams.length === 0) return false;
   const maxSquad = (room.settings && room.settings.maxSquadSize) || 25;
   
   let minBasePrice = 20000000;
@@ -210,8 +221,8 @@ function checkCapacityAndFinanceEndCondition(room) {
     }
   }
 
-  for (const team of room.teams.values()) {
-    const hasSlot = team.squad.length < maxSquad;
+  for (const team of teams) {
+    const hasSlot = (team.squad ? team.squad.length : 0) < maxSquad;
     const hasPurse = team.purse >= minBasePrice;
     if (hasSlot && hasPurse) {
       return false; // at least one team has slots and funds left
@@ -222,26 +233,33 @@ function checkCapacityAndFinanceEndCondition(room) {
 
 function sanitizeRoomState(room) {
   const foldedList = Array.from(room.foldedTeams || []);
-  const membersList = room.members ? Array.from(room.members.values()).map(m => ({
-    playerId: m.playerId,
-    playerName: m.playerName,
+  const membersList = room.members ? Array.from(room.members.values()).map((m, idx) => ({
+    memberId: 'm_' + (idx + 1),
+    displayName: m.playerName,
     teamId: m.teamId,
     role: m.role,
     isOnline: !!m.isOnline,
     isHost: m.playerId === room.hostPlayerId
   })) : [];
-  const requiredFolds = room.teams ? (room.highestBidder ? Math.max(room.teams.size - 1, 1) : Math.max(room.teams.size, 1)) : 1;
+  const teamList = Object.values(room.teams || {}).map(t => {
+    const copy = { ...t };
+    delete copy.sessionToken;
+    delete copy.ownerPlayerId;
+    return copy;
+  });
+  const requiredFolds = teamList.length ? (room.highestBidder ? Math.max(teamList.length - 1, 1) : Math.max(teamList.length, 1)) : 1;
   return {
     code: room.code,
     hostId: room.hostId,
-    hostPlayerId: room.hostPlayerId || null,
+    phase: room.phase || (room.isStarted ? 'BIDDING' : 'LOBBY'),
+    lotVersion: room.lotVersion || 1,
     members: membersList,
     status: room.status,
     isStarted: !!room.isStarted,
     isConcluding: !!room.isConcluding,
     canConcludeEarly: canConcludeEarly(room),
     settings: room.settings,
-    teams: Array.from(room.teams.values()),
+    teams: teamList,
     currentPlayer: room.currentPlayer,
     currentBid: room.currentBid,
     highestBidder: room.highestBidder,
@@ -251,26 +269,37 @@ function sanitizeRoomState(room) {
     totalPlayers: room.playerPool.length,
     recentLogs: room.recentLogs.slice(-30),
     canUndoSkip: room.skipHistory.length > 0,
-    unclaimedTeams: IPL_TEAMS.filter(t => !Array.from(room.teams.values()).some(team => team.franchiseId === t.id)),
+    unclaimedTeams: IPL_TEAMS.filter(t => !room.teams[t.id]),
     foldedTeams: foldedList,
     foldedCount: foldedList.length,
     requiredFolds: requiredFolds,
     standings: room.standings || null,
-    spectatorsCount: room.spectators ? room.spectators.size : 0,
+    spectatorsCount: room.spectators ? (room.spectators.size || Object.keys(room.spectators).length) : 0,
     decibelMeter: room.decibelMeter || {}
   };
 }
 
-function getTeamForSocket(room, socket) {
+function getTeamForSocket(room, socket, sessionToken = null) {
   if (!room || !room.teams) return null;
-  let team = room.teams.get(socket.id);
-  if (team) return team;
-  for (const [sId, t] of room.teams.entries()) {
-    if (t.socketId === socket.id || (socket.playerId && t.ownerPlayerId === socket.playerId)) {
-      room.teams.delete(sId);
-      t.socketId = socket.id;
-      room.teams.set(socket.id, t);
-      return t;
+  const token = (socket && socket.data && socket.data.sessionToken) || sessionToken;
+  const pId = socket && socket.data && socket.data.playerId;
+  for (const team of Object.values(room.teams)) {
+    if ((token && team.sessionToken === token) || 
+        (pId && team.ownerPlayerId === pId) || 
+        (socket && team.socketId === socket.id)) {
+      return team;
+    }
+  }
+  return null;
+}
+
+function getVerifiedMember(room, socket, payloadToken = null) {
+  if (!room || !room.members) return null;
+  const token = (socket && socket.data && socket.data.sessionToken) || payloadToken;
+  if (!token) return null;
+  for (const m of room.members.values()) {
+    if (m.sessionToken === token) {
+      return m;
     }
   }
   return null;
@@ -352,7 +381,7 @@ function evaluateFoldConsensus(room) {
   if (!room || room.status !== 'AUCTION' || !room.currentPlayer) return { handled: false };
   if (!room.foldedTeams) room.foldedTeams = new Set();
 
-  const allTeamIds = Array.from(room.teams.values()).map(t => t.franchiseId);
+  const allTeamIds = Object.keys(room.teams || {});
   const unfoldedTeams = allTeamIds.filter(teamId => !room.foldedTeams.has(teamId));
 
   // SCENARIO 1: Opening bid exists, and ALL other teams have folded
@@ -380,15 +409,7 @@ function evaluateFoldConsensus(room) {
       `⚡ All franchises passed on ${room.currentPlayer.name}. Instant unsold!`,
       'announcement'
     );
-    io.to(room.code).emit('player_unsold', {
-      player: room.currentPlayer,
-      reason: 'All teams folded with no bids.'
-    });
-
-    setTimeout(() => {
-      handlePlayerSoldOrUnsold(room);
-    }, 2000);
-
+    handlePlayerSoldOrUnsold(room);
     return { handled: true, outcome: 'unsold' };
   }
 
@@ -401,17 +422,12 @@ function handlePlayerSoldOrUnsold(room) {
   const player = room.currentPlayer;
   if (!player) return;
 
+  room.phase = 'HAMMER';
+  RoomTimerManager.clear(room);
+
   if (room.highestBidder) {
     // SOLD!
-    let winningTeam = room.teams.get(room.highestBidder.socketId);
-    if (!winningTeam) {
-      for (const t of room.teams.values()) {
-        if (t.franchiseId === room.highestBidder.teamId) {
-          winningTeam = t;
-          break;
-        }
-      }
-    }
+    const winningTeam = room.teams[room.highestBidder.teamId];
 
     if (winningTeam) {
       winningTeam.purse -= room.currentBid;
@@ -448,7 +464,7 @@ function handlePlayerSoldOrUnsold(room) {
   // Clear all lot folds immediately so no team remains locked during the transition
   if (room.foldedTeams) room.foldedTeams.clear();
   if (room.teams) {
-    for (const t of room.teams.values()) {
+    for (const t of Object.values(room.teams)) {
       t.isFolded = false;
     }
   }
@@ -461,8 +477,9 @@ function handlePlayerSoldOrUnsold(room) {
     return;
   }
 
-  // 3-second delay before moving to next player
+  // 3-second delay before moving to next player (Hammer Window guard)
   setTimeout(() => {
+    room.phase = 'TRANSITION';
     advanceToNextPlayer(room);
   }, 3000);
 }
@@ -473,6 +490,8 @@ function advanceToNextPlayer(room) {
   room.auctionIndex += 1;
   if (room.auctionIndex < room.playerPool.length) {
     const nextPlayer = room.playerPool[room.auctionIndex];
+    room.phase = 'BIDDING';
+    room.lotVersion = 1;
     room.currentPlayer = nextPlayer;
     room.currentBid = nextPlayer.basePrice;
     room.highestBidder = null;
@@ -481,7 +500,7 @@ function advanceToNextPlayer(room) {
     room.isTimerRunning = false;
     room.foldedTeams = new Set();
     if (room.teams) {
-      for (const t of room.teams.values()) {
+      for (const t of Object.values(room.teams)) {
         t.isFolded = false;
       }
     }
@@ -493,10 +512,16 @@ function advanceToNextPlayer(room) {
       lot: {
         player: nextPlayer,
         currentBid: nextPlayer.basePrice,
+        lotVersion: room.lotVersion,
         auctionIndex: room.auctionIndex,
         totalPlayers: room.playerPool.length
       },
-      teams: Array.from(room.teams.values())
+      teams: Object.values(room.teams).map(t => {
+        const copy = { ...t };
+        delete copy.sessionToken;
+        delete copy.ownerPlayerId;
+        return copy;
+      })
     });
 
     addRoomLog(
@@ -512,7 +537,7 @@ function advanceToNextPlayer(room) {
 
     // Detect if ANY team is legally able to bid on this player
     let eligibleBidders = 0;
-    for (const team of room.teams.values()) {
+    for (const team of Object.values(room.teams)) {
       const squadLen = team.squad ? team.squad.length : 0;
       const osCount = team.overseasCount || 0;
       const canTakeSquad = squadLen < maxSquad;
@@ -524,7 +549,7 @@ function advanceToNextPlayer(room) {
       }
     }
 
-    if (eligibleBidders === 0 && room.teams.size > 0) {
+    if (eligibleBidders === 0 && Object.keys(room.teams).length > 0) {
       addRoomLog(
         room,
         `⚠️ Deadlock prevented: No connected franchise can legally bid on ${nextPlayer.name} (Quota/Purse limits). Auto-passing unsold.`,
@@ -532,7 +557,6 @@ function advanceToNextPlayer(room) {
       );
       // Pass player as unsold immediately and proceed
       RoomTimerManager.clear(room);
-      io.to(room.code).emit('player_unsold', { player: nextPlayer });
       handlePlayerSoldOrUnsold(room);
       return;
     }
@@ -555,13 +579,12 @@ io.on('connection', (socket) => {
         minSquadSize = 15,
         maxOverseas = 8, 
         retentionsAllowed = 2,
-        managerName = 'Host',
-        playerId
+        managerName = 'Host'
       } = data || {};
       const roomCode = generateRoomCode();
-      const token = data.sessionToken || generateSessionToken();
-      const pId = playerId || ('usr_' + crypto.randomBytes(6).toString('hex'));
-      const mName = (managerName || 'Host').trim();
+      const token = generateSessionToken();
+      const pId = 'usr_' + crypto.randomBytes(6).toString('hex');
+      const mName = sanitizeName(managerName, 'Host');
 
       // Clone and shuffle players pool for randomized presentation
       const playerPool = shuffleArray(JSON.parse(JSON.stringify(playersDataset)));
@@ -574,6 +597,8 @@ io.on('connection', (socket) => {
         hostId: socket.id,
         hostPlayerId: pId,
         status: 'LOBBY',
+        phase: 'LOBBY',
+        lotVersion: 1,
         isStarted: false,
         isConcluding: false,
         settings: {
@@ -584,7 +609,7 @@ io.on('connection', (socket) => {
           retentionsAllowed: Math.min(Math.max(Number(retentionsAllowed) || 0, 0), 4)
         },
         members: new Map(),
-        teams: new Map(),
+        teams: {}, // Object keyed strictly by franchise ID ('CSK', 'MI', etc.)
         spectators: new Map(),
         decibelMeter: decibelMap,
         playerPool,
@@ -606,6 +631,7 @@ io.on('connection', (socket) => {
       newRoom.members.set(pId, {
         playerId: pId,
         playerName: mName,
+        sessionToken: token,
         teamId: null,
         role: 'manager',
         socketId: socket.id,
@@ -617,6 +643,9 @@ io.on('connection', (socket) => {
       socket.join(roomCode);
       socket.roomCode = roomCode;
       socket.playerId = pId;
+      socket.data = socket.data || {};
+      socket.data.sessionToken = token;
+      socket.data.playerId = pId;
 
       sessionRegistry.set(token, {
         roomId: roomCode,
@@ -638,7 +667,7 @@ io.on('connection', (socket) => {
   });
 
   // 2. Join Room (Brand New Joiners Only)
-  socket.on('join_room', ({ roomCode, managerName, sessionToken, playerId, asSpectator }, callback) => {
+  socket.on('join_room', ({ roomCode, managerName, sessionToken, asSpectator }, callback) => {
     try {
       if (!roomCode) return callback && callback({ success: false, error: 'Room code is required' });
       const code = roomCode.toUpperCase().trim();
@@ -651,74 +680,87 @@ io.on('connection', (socket) => {
         room.cleanupTimer = null;
       }
 
-      const token = sessionToken || generateSessionToken();
-      const mName = (managerName || 'Player').trim();
-      const pId = playerId || ('usr_' + crypto.randomBytes(6).toString('hex'));
+      const mName = sanitizeName(managerName, 'Player');
+
+      // Check if this client has a valid existing session in this room
+      if (sessionToken && room.members) {
+        let existingMember = null;
+        for (const m of room.members.values()) {
+          if (m.sessionToken === sessionToken) {
+            existingMember = m;
+            break;
+          }
+        }
+
+        if (existingMember) {
+          if (existingMember.disconnectTimeout) {
+            clearTimeout(existingMember.disconnectTimeout);
+            existingMember.disconnectTimeout = null;
+          }
+          existingMember.socketId = socket.id;
+          existingMember.isOnline = true;
+          existingMember.playerName = mName;
+
+          socket.join(code);
+          socket.roomCode = code;
+          socket.playerId = existingMember.playerId;
+          socket.data = socket.data || {};
+          socket.data.sessionToken = existingMember.sessionToken;
+          socket.data.playerId = existingMember.playerId;
+
+          if (existingMember.teamId && room.teams[existingMember.teamId]) {
+            const t = room.teams[existingMember.teamId];
+            t.socketId = socket.id;
+            t.managerName = mName;
+            if (room.highestBidder && (room.highestBidder.teamId === t.franchiseId || room.highestBidder.playerId === existingMember.playerId)) {
+              room.highestBidder.socketId = socket.id;
+            }
+          }
+
+          sessionRegistry.set(existingMember.sessionToken, {
+            roomId: code,
+            playerId: existingMember.playerId,
+            teamId: existingMember.teamId || null,
+            managerName: mName,
+            socketId: socket.id,
+            role: existingMember.role
+          });
+
+          if (typeof callback === 'function') {
+            callback({
+              success: true,
+              role: existingMember.role,
+              playerId: existingMember.playerId,
+              sessionToken: existingMember.sessionToken,
+              roomState: sanitizeRoomState(room)
+            });
+          }
+          broadcastRoomUpdate(code);
+          return;
+        }
+      }
 
       // Check manager name duplication inside active room (among different players)
       if (!room.members) room.members = new Map();
       const nameConflict = Array.from(room.members.values()).some(
-        m => m.playerName.trim().toLowerCase() === mName.toLowerCase() && m.playerId !== pId
+        m => m.playerName.trim().toLowerCase() === mName.toLowerCase()
       );
       if (nameConflict) {
         socket.emit('join_error', { message: 'Name already taken in this room.' });
         return callback && callback({ success: false, error: 'Name already taken in this room.' });
       }
 
-      // If returning member already registered, cancel disconnect grace timer and update socket
-      const existingMember = room.members.get(pId);
-      if (existingMember) {
-        if (existingMember.disconnectTimeout) {
-          clearTimeout(existingMember.disconnectTimeout);
-          existingMember.disconnectTimeout = null;
-        }
-        existingMember.socketId = socket.id;
-        existingMember.isOnline = true;
-        existingMember.playerName = mName;
-        socket.join(code);
-        socket.roomCode = code;
-        socket.playerId = pId;
-
-        // If member had claimed a team, update team socketId
-        if (existingMember.teamId && room.teams.has(existingMember.teamId)) {
-          const t = room.teams.get(existingMember.teamId);
-          t.socketId = socket.id;
-          t.managerName = mName;
-          if (room.highestBidder && (room.highestBidder.teamId === t.franchiseId || room.highestBidder.playerId === pId)) {
-            room.highestBidder.socketId = socket.id;
-          }
-        }
-
-        sessionRegistry.set(token, {
-          roomId: code,
-          playerId: pId,
-          teamId: existingMember.teamId || null,
-          managerName: mName,
-          socketId: socket.id,
-          role: existingMember.role
-        });
-
-        if (typeof callback === 'function') {
-          callback({
-            success: true,
-            role: existingMember.role,
-            playerId: pId,
-            sessionToken: token,
-            roomState: sanitizeRoomState(room)
-          });
-        }
-        broadcastRoomUpdate(code);
-        return;
-      }
-
-      // Brand new joiner
-      const isLobbyFull = room.teams.size >= 10;
+      // Brand new joiner: ALWAYS generate fresh server token
+      const token = generateSessionToken();
+      const pId = 'usr_' + crypto.randomBytes(6).toString('hex');
+      const isLobbyFull = Object.keys(room.teams || {}).length >= 10;
       const isAutoSpectator = !!asSpectator || room.isStarted || isLobbyFull;
       const role = isAutoSpectator ? 'spectator' : 'manager';
 
       room.members.set(pId, {
         playerId: pId,
         playerName: mName,
+        sessionToken: token,
         teamId: null,
         role,
         socketId: socket.id,
@@ -729,6 +771,9 @@ io.on('connection', (socket) => {
       socket.join(code);
       socket.roomCode = code;
       socket.playerId = pId;
+      socket.data = socket.data || {};
+      socket.data.sessionToken = token;
+      socket.data.playerId = pId;
 
       if (isAutoSpectator) {
         if (!room.spectators) room.spectators = new Map();
@@ -767,10 +812,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 2B. Reconnect Player / Resume Session (Pipeline 2: Never demote returning managers)
-  const handleReconnect = ({ roomId, roomCode, sessionToken, playerId, teamId, franchiseId, managerName }, callback) => {
+  // 2B. Reconnect Player / Resume Session (Strict sessionToken validation)
+  const handleReconnect = ({ roomId, roomCode, sessionToken, managerName }, callback) => {
     try {
-      const code = (roomId || roomCode || '').toUpperCase().trim();
+      const code = (roomId || roomCode || socket.roomCode || '').toUpperCase().trim();
       if (!code) return callback && callback({ success: false, error: 'Room code is required' });
       const room = rooms.get(code);
 
@@ -779,104 +824,96 @@ io.on('connection', (socket) => {
         return callback && callback({ success: false, error: 'War Room session expired or not found.' });
       }
 
+      const token = sessionToken || (socket.data && socket.data.sessionToken);
+      if (!token) {
+        socket.emit('session_invalid', { message: 'Session token required for reconnection.' });
+        return callback && callback({ success: false, error: 'Session token required for reconnection.' });
+      }
+
       if (room.cleanupTimer) {
         clearTimeout(room.cleanupTimer);
         room.cleanupTimer = null;
       }
 
-      socket.join(code);
-      socket.roomCode = code;
-
-      const pId = playerId;
-      if (!room.members) room.members = new Map();
-      const member = pId ? room.members.get(pId) : null;
-
-      if (!member) {
-        // Fallback: search by teamId or token if playerId not found
-        const fId = franchiseId || teamId;
-        let matchedTeam = null;
-        if (fId) {
-          for (const team of room.teams.values()) {
-            if (team.franchiseId === fId) {
-              matchedTeam = team;
-              break;
-            }
-          }
-        }
-
-        if (!matchedTeam) {
-          socket.emit('session_invalid', { message: 'Session not recognized in this room.' });
-          return callback && callback({ success: false, error: 'Session not recognized in this room.' });
-        }
-      }
-
-      // Reconnection Match Found!
-      if (member) {
-        if (member.disconnectTimeout) {
-          clearTimeout(member.disconnectTimeout);
-          member.disconnectTimeout = null;
-        }
-        member.socketId = socket.id;
-        member.isOnline = true;
-        if (managerName) member.playerName = managerName.trim();
-      }
-      socket.playerId = member ? member.playerId : pId;
-
-      // Re-assign host if old host is disconnected
-      if (!room.hostPlayerId && socket.playerId) {
-        room.hostPlayerId = socket.playerId;
-      }
-      if (room.hostPlayerId === socket.playerId) {
-        room.hostId = socket.id;
-      } else {
-        const activeSockets = Array.from(io.sockets.adapter.rooms.get(code) || []);
-        if (!room.hostId || !activeSockets.includes(room.hostId)) {
-          room.hostId = socket.id;
-          if (socket.playerId) room.hostPlayerId = socket.playerId;
-        }
-      }
-
-      const fId = (member && member.teamId) || franchiseId || teamId;
-      let reclaimedTeam = null;
-
-      if (fId) {
-        for (const team of room.teams.values()) {
-          if (team.franchiseId === fId || (member && team.ownerPlayerId === member.playerId)) {
-            team.socketId = socket.id;
-            if (member) {
-              team.ownerPlayerId = member.playerId;
-              team.managerName = member.playerName;
-            } else if (managerName) {
-              team.managerName = managerName.trim();
-            }
-            team.isHost = (room.hostPlayerId === (member ? member.playerId : null) || socket.id === room.hostId);
-            reclaimedTeam = team;
-
-            if (room.highestBidder && (room.highestBidder.teamId === fId || (member && room.highestBidder.playerId === member.playerId))) {
-              room.highestBidder.socketId = socket.id;
-            }
+      // Look up member EXCLUSIVELY by sessionToken
+      let member = null;
+      if (room.members) {
+        for (const m of room.members.values()) {
+          if (m.sessionToken === token) {
+            member = m;
             break;
           }
         }
       }
 
-      const token = sessionToken || generateSessionToken();
+      if (!member) {
+        socket.emit('session_invalid', { message: 'Session token not recognized in this room.' });
+        return callback && callback({ success: false, error: 'Session not recognized in this room.' });
+      }
+
+      // Reconnection Match Found!
+      if (member.disconnectTimeout) {
+        clearTimeout(member.disconnectTimeout);
+        member.disconnectTimeout = null;
+      }
+      member.socketId = socket.id;
+      member.isOnline = true;
+      if (managerName) member.playerName = sanitizeName(managerName, member.playerName);
+
+      socket.join(code);
+      socket.roomCode = code;
+      socket.playerId = member.playerId;
+      socket.data = socket.data || {};
+      socket.data.sessionToken = token;
+      socket.data.playerId = member.playerId;
+
+      // Re-assign host if old host is disconnected
+      if (!room.hostPlayerId) {
+        room.hostPlayerId = member.playerId;
+      }
+      if (room.hostPlayerId === member.playerId) {
+        room.hostId = socket.id;
+      } else {
+        const activeSockets = Array.from(io.sockets.adapter.rooms.get(code) || []);
+        if (!room.hostId || !activeSockets.includes(room.hostId)) {
+          room.hostId = socket.id;
+          room.hostPlayerId = member.playerId;
+        }
+      }
+
+      // Reclaim franchise team if member owns one
+      let reclaimedTeam = null;
+      if (member.teamId && room.teams && room.teams[member.teamId]) {
+        const team = room.teams[member.teamId];
+        if (team.ownerPlayerId === member.playerId) {
+          team.socketId = socket.id;
+          team.sessionToken = token;
+          team.managerName = member.playerName;
+          team.isHost = (room.hostPlayerId === member.playerId || socket.id === room.hostId);
+          reclaimedTeam = team;
+
+          if (room.highestBidder && (room.highestBidder.teamId === member.teamId || room.highestBidder.playerId === member.playerId)) {
+            room.highestBidder.socketId = socket.id;
+          }
+        }
+      }
+
       // CRITICAL GUARD: Never demote a manager to spectator
-      const userRole = (member && member.role === 'manager') || reclaimedTeam ? 'manager' : 'spectator';
-      if (member) member.role = userRole;
+      const userRole = (member.role === 'manager' || reclaimedTeam) ? 'manager' : 'spectator';
+      member.role = userRole;
 
       sessionRegistry.set(token, {
         roomId: code,
-        playerId: member ? member.playerId : (pId || null),
+        playerId: member.playerId,
         teamId: reclaimedTeam ? reclaimedTeam.franchiseId : null,
-        managerName: reclaimedTeam ? reclaimedTeam.managerName : ((member && member.playerName) || managerName || 'Manager'),
+        managerName: reclaimedTeam ? reclaimedTeam.managerName : member.playerName,
         socketId: socket.id,
         role: userRole
       });
 
       addRoomLog(
         room,
-        `⚡ ${reclaimedTeam ? reclaimedTeam.managerName : ((member && member.playerName) || managerName || 'Player')} reconnected & restored session.`,
+        `⚡ ${reclaimedTeam ? reclaimedTeam.managerName : member.playerName} reconnected & restored session.`,
         'info'
       );
 
@@ -884,7 +921,7 @@ io.on('connection', (socket) => {
 
       socket.emit('session_restored', {
         role: userRole,
-        playerId: member ? member.playerId : pId,
+        playerId: member.playerId,
         team: reclaimedTeam,
         roomState: sanitizeRoomState(room)
       });
@@ -894,7 +931,7 @@ io.on('connection', (socket) => {
           success: true,
           reclaimed: !!reclaimedTeam,
           role: userRole,
-          playerId: member ? member.playerId : pId,
+          playerId: member.playerId,
           sessionToken: token,
           roomState: sanitizeRoomState(room),
           team: reclaimedTeam,
@@ -911,41 +948,52 @@ io.on('connection', (socket) => {
   socket.on('reconnect_player', handleReconnect);
   socket.on('reconnect_session', handleReconnect);
 
-  // 3. Select Team Franchise (Keyed by socket or franchise, persistent ownerPlayerId)
-  socket.on('select_team', ({ franchiseId, managerName, sessionToken, playerId }, callback) => {
+  // 3. Select Team Franchise (Keyed strictly by franchiseId)
+  socket.on('select_team', ({ franchiseId, managerName, sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
+      const member = getVerifiedMember(room, socket, sessionToken);
+      if (!member) {
+        return callback && callback({ success: false, error: 'Invalid or missing session token. Please reconnect.' });
+      }
+
       // Match-Lock Guard: Once match is started, team selection is strictly locked
-      if (room.isStarted || room.status !== 'LOBBY') {
+      if (room.isStarted || room.phase !== 'LOBBY' || room.status !== 'LOBBY') {
         return callback && callback({ success: false, error: 'Match already started. Franchise selection is locked.' });
       }
 
       // 10-Franchise Cap Guard
-      if (room.teams.size >= 10 && !room.teams.has(socket.id)) {
+      const currentTeamCount = Object.keys(room.teams || {}).length;
+      if (currentTeamCount >= 10 && (!member.teamId || !room.teams[member.teamId])) {
         return callback && callback({ success: false, error: 'Lobby is full! Max 10 franchises already claimed.' });
       }
 
       const franchise = IPL_TEAMS.find(t => t.id === franchiseId);
       if (!franchise) return callback && callback({ success: false, error: 'Invalid franchise selected.' });
 
-      const pId = playerId || socket.playerId || ('usr_' + socket.id);
-
-      // Verify franchise availability
-      for (const [sId, existingTeam] of room.teams.entries()) {
-        if (existingTeam.franchiseId === franchiseId && sId !== socket.id && existingTeam.ownerPlayerId !== pId) {
-          return callback && callback({ success: false, error: `${franchise.name} has already been claimed by another player!` });
-        }
+      // Verify franchise availability (ensure not owned by another player)
+      if (room.teams[franchise.id] && room.teams[franchise.id].ownerPlayerId !== member.playerId) {
+        return callback && callback({ success: false, error: `${franchise.name} has already been claimed by another player!` });
       }
 
-      const existing = room.teams.get(socket.id);
-      const mName = (managerName || (existing ? existing.managerName : 'Manager')).trim();
+      // If user had previously selected a different team, release the old one
+      if (member.teamId && member.teamId !== franchise.id && room.teams[member.teamId] && room.teams[member.teamId].ownerPlayerId === member.playerId) {
+        delete room.teams[member.teamId];
+      }
+
+      const existing = room.teams[franchise.id];
+      const mName = sanitizeName(managerName || member.playerName || (existing ? existing.managerName : 'Manager'), 'Manager');
+      member.playerName = mName;
+      member.teamId = franchise.id;
+      member.role = 'manager';
 
       const teamData = {
         socketId: socket.id,
-        ownerPlayerId: pId,
+        sessionToken: member.sessionToken,
+        ownerPlayerId: member.playerId,
         managerName: mName,
         franchiseId: franchise.id,
         name: franchise.name,
@@ -957,28 +1005,17 @@ io.on('connection', (socket) => {
         squad: existing ? existing.squad : [],
         squadCount: existing ? existing.squad.length : 0,
         overseasCount: existing ? existing.overseasCount : 0,
-        isHost: (room.hostPlayerId === pId || socket.id === room.hostId),
+        isHost: (room.hostPlayerId === member.playerId || socket.id === room.hostId),
         retentions: existing ? existing.retentions : [],
         isFolded: false
       };
 
-      room.teams.set(socket.id, teamData);
+      room.teams[franchise.id] = teamData;
 
-      // Register member assignment
-      if (!room.members) room.members = new Map();
-      room.members.set(pId, {
-        playerId: pId,
-        playerName: mName,
-        teamId: franchise.id,
-        role: 'manager',
-        socketId: socket.id,
-        isOnline: true,
-        disconnectTimeout: null
-      });
-
-      if (sessionToken && sessionRegistry.has(sessionToken)) {
-        sessionRegistry.get(sessionToken).teamId = franchise.id;
-        sessionRegistry.get(sessionToken).playerId = pId;
+      if (member.sessionToken && sessionRegistry.has(member.sessionToken)) {
+        sessionRegistry.get(member.sessionToken).teamId = franchise.id;
+        sessionRegistry.get(member.sessionToken).playerId = member.playerId;
+        sessionRegistry.get(member.sessionToken).managerName = mName;
       }
 
       addRoomLog(room, `${teamData.managerName} took control of ${teamData.name} (${teamData.franchiseId})`);
@@ -999,17 +1036,24 @@ io.on('connection', (socket) => {
   });
 
   // 4. Submit Retentions
-  socket.on('submit_retentions', ({ playerIds }, callback) => {
+  socket.on('submit_retentions', ({ playerIds, sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
-      const team = room.teams.get(socket.id);
-      if (!team) return callback && callback({ success: false, error: 'Select a team first.' });
+      const member = getVerifiedMember(room, socket, sessionToken);
+      if (!member || !member.teamId || !room.teams[member.teamId]) {
+        return callback && callback({ success: false, error: 'Select a team first.' });
+      }
+
+      const team = room.teams[member.teamId];
+      if (team.ownerPlayerId !== member.playerId) {
+        return callback && callback({ success: false, error: 'Unauthorized team mutation.' });
+      }
 
       // Match-Lock Guard: Once match is started, retentions are locked
-      if (room.isStarted || room.status !== 'LOBBY') {
+      if (room.isStarted || room.phase !== 'LOBBY' || room.status !== 'LOBBY') {
         return callback && callback({ success: false, error: 'Match already started. Retentions are locked.' });
       }
 
@@ -1054,21 +1098,28 @@ io.on('connection', (socket) => {
   });
 
   // 5. Start Auction (Host)
-  socket.on('start_auction', (_, callback) => {
+  socket.on('start_auction', ({ sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      const member = getVerifiedMember(room, socket, sessionToken);
+      const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
       if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
 
-      if (room.teams.size === 0) {
+      // State Machine Guard (H1, C4): Auction can only be started from LOBBY phase
+      if (room.phase !== 'LOBBY' || room.isStarted) {
+        return callback && callback({ success: false, error: 'Auction can only be started from LOBBY phase.' });
+      }
+
+      const teamCount = Object.keys(room.teams || {}).length;
+      if (teamCount === 0) {
         return callback && callback({ success: false, error: 'At least 1 team must join to start!' });
       }
 
       // Remove all retained players from auction pool
       const retainedPlayerIds = new Set();
-      for (const t of room.teams.values()) {
+      for (const t of Object.values(room.teams)) {
         (t.retentions || []).forEach(id => retainedPlayerIds.add(id));
       }
 
@@ -1083,6 +1134,8 @@ io.on('connection', (socket) => {
 
       room.isStarted = true;
       room.status = 'AUCTION';
+      room.phase = 'BIDDING';
+      room.lotVersion = 1;
       room.auctionIndex = -1;
 
       addRoomLog(room, `🚀 Host started the Mega Auction with ${room.playerPool.length} available players!`, 'announcement');
@@ -1095,12 +1148,13 @@ io.on('connection', (socket) => {
   });
 
   // 5B. Controlled Host Wrap-Up (Accelerated Phase / Manual Finalize)
-  socket.on('host_conclude_auction', (_, callback) => {
+  socket.on('host_conclude_auction', ({ sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      const member = getVerifiedMember(room, socket, sessionToken);
+      const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
       if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
       if (room.status !== 'AUCTION') return callback && callback({ success: false, error: 'Auction is not currently in progress' });
 
@@ -1119,19 +1173,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 6. Place Bid (Synchronous Atomic Handling + Fold Lock Guard)
-  socket.on('place_bid', ({ expectedCurrentBid }, callback) => {
+  // 6. Place Bid (Synchronous Atomic Handling + Fold Lock Guard + Monotonic Lot Version)
+  socket.on('place_bid', ({ expectedCurrentBid, lotVersion, sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
-      if (room.status !== 'AUCTION' || !room.currentPlayer) {
-        return callback && callback({ success: false, error: 'No active player on hammer.' });
+      // State Machine Guard (C4, H1, H2, H4): Strictly allow bids ONLY in BIDDING phase
+      if (room.phase !== 'BIDDING' || room.status !== 'AUCTION' || !room.currentPlayer) {
+        return callback && callback({ 
+          success: false, 
+          error: room.phase === 'HAMMER' ? 'Hammer is falling! Bidding closed for this player.' : 'No active player on hammer.' 
+        });
       }
 
-      const team = getTeamForSocket(room, socket);
+      const member = getVerifiedMember(room, socket, sessionToken);
+      const team = getTeamForSocket(room, socket, sessionToken);
       if (!team) return callback && callback({ success: false, error: 'You have not claimed a team franchise.' });
+
+      // Strictly verify franchise ownership
+      if (member && team.ownerPlayerId !== member.playerId) {
+        return callback && callback({ success: false, error: 'Unauthorized team action.' });
+      }
 
       // STRICT CHECK: Block folded teams from placing any bids on this player
       if (room.foldedTeams && room.foldedTeams.has(team.franchiseId)) {
@@ -1139,19 +1203,31 @@ io.on('connection', (socket) => {
       }
 
       // Guard: Highest bidder cannot bid against themselves (allow self-raise in solo/1-team test mode)
-      const isSoloTesting = room.teams.size <= 1;
-      if (!isSoloTesting && room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
+      const isSoloTesting = Object.keys(room.teams || {}).length <= 1;
+      if (!isSoloTesting && room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId || (member && room.highestBidder.playerId === member.playerId))) {
         return callback && callback({ success: false, error: 'You already hold the highest bid!' });
       }
 
       // Check max squad size
-      if (team.squad.length >= room.settings.maxSquadSize) {
+      if ((team.squad ? team.squad.length : 0) >= room.settings.maxSquadSize) {
         return callback && callback({ success: false, error: `Squad capacity full (${room.settings.maxSquadSize} max)!` });
       }
 
       // Check overseas limit
-      if (room.currentPlayer.isOverseas && team.overseasCount >= room.settings.maxOverseas) {
+      if (room.currentPlayer.isOverseas && (team.overseasCount || 0) >= room.settings.maxOverseas) {
         return callback && callback({ success: false, error: `Overseas player limit reached (${room.settings.maxOverseas} max)!` });
+      }
+
+      // H3: Monotonic lotVersion check for opening/fast bid race conditions
+      if (lotVersion !== undefined && lotVersion !== null) {
+        if (Number(lotVersion) !== (room.lotVersion || 1)) {
+          return callback && callback({
+            success: false,
+            error: 'Price just changed! Please review the new bid.',
+            currentBid: room.currentBid,
+            lotVersion: room.lotVersion || 1
+          });
+        }
       }
 
       // Calculate next bid amount
@@ -1171,6 +1247,7 @@ io.on('connection', (socket) => {
             error: `Outbid! Price is now ₹${(room.currentBid / 10000000).toFixed(2)} Cr.`,
             currentBid: room.currentBid,
             serverCurrentBid: room.currentBid,
+            lotVersion: room.lotVersion || 1,
             nextExpectedBid: nextBidAmount
           });
         }
@@ -1187,9 +1264,10 @@ io.on('connection', (socket) => {
       // Atomic state update
       room.openingBidPlaced = true;
       room.currentBid = nextBidAmount;
+      room.lotVersion = (room.lotVersion || 1) + 1;
       room.highestBidder = {
         socketId: socket.id,
-        playerId: team.ownerPlayerId || socket.playerId || null,
+        playerId: team.ownerPlayerId || (member ? member.playerId : socket.playerId) || null,
         teamId: team.franchiseId,
         teamName: team.name,
         managerName: team.managerName,
@@ -1210,31 +1288,35 @@ io.on('connection', (socket) => {
       io.to(room.code).emit('bid_accepted', {
         currentBid: room.currentBid,
         highestBidder: room.highestBidder,
+        lotVersion: room.lotVersion,
         nextIncrement: calculateIncrement(room.currentBid)
       });
 
       // Check consensus hammer resolution after bid
-      evaluateLotConsensus(room);
+      evaluateFoldConsensus(room);
       broadcastRoomUpdate(room.code);
 
       if (typeof callback === 'function') {
-        callback({ success: true, currentBid: room.currentBid });
+        callback({ success: true, currentBid: room.currentBid, lotVersion: room.lotVersion });
       }
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
     }
   });
 
-  // 7. Host Skip Player
-  socket.on('skip_player', (_, callback) => {
+  // 7. Host Skip Player (Strictly in BIDDING phase)
+  socket.on('skip_player', ({ sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      const member = getVerifiedMember(room, socket, sessionToken);
+      const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
       if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
-      if (room.status !== 'AUCTION' || !room.currentPlayer) {
-        return callback && callback({ success: false, error: 'No player on hammer to skip' });
+
+      // State Machine Guard: Skip player only allowed during BIDDING phase
+      if (room.phase !== 'BIDDING' || room.status !== 'AUCTION' || !room.currentPlayer) {
+        return callback && callback({ success: false, error: 'Cannot skip player outside active BIDDING phase.' });
       }
 
       RoomTimerManager.clear(room);
@@ -1257,15 +1339,25 @@ io.on('connection', (socket) => {
   });
 
   // 8. Host Undo Skip
-  socket.on('undo_skip_player', (_, callback) => {
+  socket.on('undo_skip_player', ({ sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
+      const member = getVerifiedMember(room, socket, sessionToken);
+      const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
       if (!isHostCaller) return callback && callback({ success: false, error: 'Host only' });
+
+      // State Machine Guard (H2): Block undo if auction is concluding or concluded
+      if (room.phase === 'CONCLUDED' || room.isConcluding) {
+        return callback && callback({ success: false, error: 'Cannot undo skip after auction is concluded.' });
+      }
+      if (room.phase === 'HAMMER') {
+        return callback && callback({ success: false, error: 'Cannot undo skip during hammer resolution.' });
+      }
+
       if (room.skipHistory.length === 0) {
-        return callback && callback({ success: false, error: 'No skipped player to undo' });
+        return callback && callback({ success: false, error: 'No skipped player to undo.' });
       }
 
       RoomTimerManager.clear(room);
@@ -1273,14 +1365,19 @@ io.on('connection', (socket) => {
       const lastSkipped = room.skipHistory.pop();
       room.playerPool.pop(); // Remove the duplicated entry pushed to the end
 
+      // Rewind room.auctionIndex to properly restore position in pool
+      room.auctionIndex = lastSkipped.auctionIndex;
+      room.phase = 'BIDDING';
+      room.lotVersion = (room.lotVersion || 1) + 1;
       room.currentPlayer = lastSkipped.player;
       room.currentBid = lastSkipped.player.basePrice;
       room.highestBidder = null;
+      room.openingBidPlaced = false;
       room.timerSeconds = 15;
       room.isTimerRunning = false;
       room.foldedTeams = new Set();
       if (room.teams) {
-        for (const t of room.teams.values()) {
+        for (const t of Object.values(room.teams)) {
           t.isFolded = false;
         }
       }
@@ -1295,21 +1392,31 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 9. Team FOLD / Pass (Persistent per-lot fold + evaluateLotConsensus)
-  socket.on('team_fold', (_, callback) => {
+  // 9. Team FOLD / Pass (Persistent per-lot fold + evaluateFoldConsensus)
+  socket.on('team_fold', ({ sessionToken }, callback) => {
     try {
       const roomCode = socket.roomCode;
       const room = rooms.get(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
-      if (room.status !== 'AUCTION' || !room.currentPlayer) {
-        return callback && callback({ success: false, error: 'No active player on hammer' });
+
+      // State Machine Guard (C4, H1, H4): Folds strictly allowed ONLY during BIDDING phase
+      if (room.phase !== 'BIDDING' || room.status !== 'AUCTION' || !room.currentPlayer) {
+        return callback && callback({ 
+          success: false, 
+          error: room.phase === 'HAMMER' ? 'Hammer is falling! Lot is resolving.' : 'No active player on hammer' 
+        });
       }
 
-      const team = getTeamForSocket(room, socket);
+      const member = getVerifiedMember(room, socket, sessionToken);
+      const team = getTeamForSocket(room, socket, sessionToken);
       if (!team) return callback && callback({ success: false, error: 'Select a team first' });
 
+      if (member && team.ownerPlayerId !== member.playerId) {
+        return callback && callback({ success: false, error: 'Unauthorized team action.' });
+      }
+
       // Security: Leading/Highest bidder CANNOT fold against their own bid!
-      if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId)) {
+      if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId || (member && room.highestBidder.playerId === member.playerId))) {
         return callback && callback({ success: false, error: 'You are the highest bidder! Leading team cannot fold.' });
       }
 
@@ -1334,7 +1441,7 @@ io.on('connection', (socket) => {
       io.to(room.code).emit('team_folded', {
         teamId: team.franchiseId,
         foldedCount: room.foldedTeams.size,
-        totalEligible: room.teams.size
+        totalEligible: Object.keys(room.teams || {}).length
       });
 
       broadcastRoomUpdate(roomCode);
@@ -1433,26 +1540,16 @@ io.on('connection', (socket) => {
       room.members.delete(kickedPlayerId);
 
       // Handle team detachment
-      if (kickedTeamId) {
-        if (!room.isStarted) {
+      if (kickedTeamId && room.teams[kickedTeamId]) {
+        if (!room.isStarted || room.phase === 'LOBBY') {
           // Pre-auction: free up the franchise seat for another user
-          for (const [sId, team] of room.teams.entries()) {
-            if (team.franchiseId === kickedTeamId || team.ownerPlayerId === kickedPlayerId) {
-              room.teams.delete(sId);
-              break;
-            }
-          }
+          delete room.teams[kickedTeamId];
         } else {
           // In-auction: mark auto-folded so match doesn't stall
           if (!room.foldedTeams) room.foldedTeams = new Set();
           room.foldedTeams.add(kickedTeamId);
-          for (const team of room.teams.values()) {
-            if (team.franchiseId === kickedTeamId) {
-              team.isFolded = true;
-              break;
-            }
-          }
-          evaluateLotConsensus(room);
+          room.teams[kickedTeamId].isFolded = true;
+          evaluateFoldConsensus(room);
         }
       }
 
@@ -1470,7 +1567,7 @@ io.on('connection', (socket) => {
   });
 
   // 9D. Leave Room
-  socket.on('leave_room', ({ roomCode, playerId }, callback) => {
+  socket.on('leave_room', ({ roomCode, playerId, sessionToken }, callback) => {
     try {
       const code = (roomCode || socket.roomCode || '').toUpperCase().trim();
       const room = rooms.get(code);
@@ -1479,42 +1576,21 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const pId = playerId || socket.playerId;
-      let member = null;
-      if (room.members) {
-        if (typeof room.members.get === 'function') {
-          member = room.members.get(pId);
-        } else if (room.members[pId]) {
-          member = room.members[pId];
-        }
-      }
+      const member = getVerifiedMember(room, socket, sessionToken) || (socket.playerId && room.members ? room.members.get(socket.playerId) : null);
+      const pId = member ? member.playerId : (playerId || socket.playerId);
 
       if (member) {
         const teamId = member.teamId;
         // If auction hasn't started, release their franchise
-        if (!room.isStarted && teamId) {
-          if (room.teams instanceof Map) {
-            for (const [sId, team] of room.teams.entries()) {
-              if (team.franchiseId === teamId || team.ownerPlayerId === pId || sId === socket.id) {
-                room.teams.delete(sId);
-                break;
-              }
-            }
-          } else if (room.teams && typeof room.teams === 'object') {
+        if (!room.isStarted && teamId && room.teams && room.teams[teamId]) {
+          if (room.teams[teamId].ownerPlayerId === member.playerId) {
             delete room.teams[teamId];
           }
-        } else if (room.isStarted && teamId) {
+        } else if (room.isStarted && teamId && room.teams && room.teams[teamId]) {
           // If auction is live, mark folded so match does not stall
           if (!room.foldedTeams) room.foldedTeams = new Set();
           room.foldedTeams.add(teamId);
-          if (room.teams instanceof Map) {
-            for (const team of room.teams.values()) {
-              if (team.franchiseId === teamId || team.ownerPlayerId === pId) {
-                team.isFolded = true;
-                break;
-              }
-            }
-          }
+          room.teams[teamId].isFolded = true;
           evaluateFoldConsensus(room);
         }
 
@@ -1525,17 +1601,11 @@ io.on('connection', (socket) => {
 
         if (room.members instanceof Map) {
           room.members.delete(pId);
-        } else {
-          delete room.members[pId];
         }
       }
 
-      if (room.spectators) {
-        if (typeof room.spectators.delete === 'function') {
-          room.spectators.delete(socket.id);
-        } else if (Array.isArray(room.spectators)) {
-          room.spectators = room.spectators.filter(id => id !== socket.id);
-        }
+      if (room.spectators && typeof room.spectators.delete === 'function') {
+        room.spectators.delete(socket.id);
       }
 
       socket.leave(code);
@@ -1557,7 +1627,7 @@ io.on('connection', (socket) => {
       }
 
       const memberCount = room.members instanceof Map ? room.members.size : Object.keys(room.members || {}).length;
-      const teamsData = room.teams instanceof Map ? Array.from(room.teams.values()) : room.teams;
+      const teamsData = Object.values(room.teams || {});
 
       // Broadcast updated room state & player_left event to remaining participants
       io.to(code).emit('player_left', {
@@ -1592,13 +1662,9 @@ io.on('connection', (socket) => {
       member.disconnectTimeout = setTimeout(() => {
         if (!member.isOnline) {
           // Grace period expired without reconnection
-          if (!room.isStarted && member.teamId) {
-            // Pre-auction: free the seat
-            for (const [sId, team] of room.teams.entries()) {
-              if (team.franchiseId === member.teamId || team.ownerPlayerId === member.playerId) {
-                room.teams.delete(sId);
-                break;
-              }
+          if (!room.isStarted && member.teamId && room.teams && room.teams[member.teamId]) {
+            if (room.teams[member.teamId].ownerPlayerId === member.playerId) {
+              delete room.teams[member.teamId];
             }
           }
           addRoomLog(room, `⏳ Disconnect grace period expired for ${member.playerName}.`, 'info');
@@ -1611,7 +1677,7 @@ io.on('connection', (socket) => {
       room.spectators.delete(socket.id);
     }
 
-    const leavingTeam = room.teams.get(socket.id);
+    const leavingTeam = getTeamForSocket(room, socket);
     if (leavingTeam) {
       addRoomLog(room, `⚠️ ${leavingTeam.managerName} (${leavingTeam.franchiseId}) disconnected (reconnection window active).`);
     }
@@ -1682,8 +1748,8 @@ io.on('connection', (socket) => {
       socket.emit('team_cheered', cheerPayload);
 
       // 2. Locate franchise manager socket and emit targeted cheer
-      if (tId) {
-        for (const team of room.teams.values()) {
+      if (tId && room.teams) {
+        for (const team of Object.values(room.teams)) {
           if (team.franchiseId === tId && team.socketId && team.socketId !== socket.id) {
             io.to(team.socketId).emit('team_cheered', cheerPayload);
             break;
