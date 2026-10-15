@@ -64,6 +64,63 @@ const rooms = new Map();
 // Session Registry: sessionToken -> { roomId, teamId, managerName, socketId }
 const sessionRegistry = new Map();
 
+// Universal room code sanitizer: strips '#', spaces, and special characters
+function sanitizeRoomCode(code) {
+  if (!code) return '';
+  return String(code).replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
+}
+
+// Universal Room Getter: Works whether 'rooms' is a Map or an Object, handles casing and symbols
+function getRoom(rawCode) {
+  if (!rawCode) return null;
+  const clean = sanitizeRoomCode(rawCode);
+  if (!clean) return null;
+
+  // 1. If rooms is a Map
+  if (typeof rooms.get === 'function') {
+    const r = rooms.get(clean) || rooms.get(rawCode);
+    if (r) return r;
+  }
+
+  // 2. If rooms is a plain Object
+  if (rooms && typeof rooms === 'object') {
+    const r = rooms[clean] || rooms[rawCode];
+    if (r) return r;
+  }
+
+  // 3. Case-insensitive fallback across all active rooms
+  const allEntries = typeof rooms.entries === 'function' ? Array.from(rooms.entries()) : Object.entries(rooms);
+  for (const [k, v] of allEntries) {
+    if (sanitizeRoomCode(k) === clean) {
+      return v;
+    }
+  }
+
+  return null;
+}
+
+// Universal Room Setter: Dual-writes so both Map.get and obj[code] lookups always succeed
+function saveRoom(rawCode, roomData) {
+  const clean = sanitizeRoomCode(rawCode);
+  if (typeof rooms.set === 'function') {
+    rooms.set(clean, roomData);
+  }
+  rooms[clean] = roomData;
+}
+
+// Universal Room Deleter: Cleans up both Map and Object representations
+function deleteRoom(rawCode) {
+  const clean = sanitizeRoomCode(rawCode);
+  if (typeof rooms.delete === 'function') {
+    rooms.delete(clean);
+    rooms.delete(rawCode);
+  }
+  if (rooms && typeof rooms === 'object') {
+    delete rooms[clean];
+    delete rooms[rawCode];
+  }
+}
+
 function generateSessionToken() {
   return crypto.randomBytes(24).toString('hex');
 }
@@ -122,7 +179,7 @@ function generateRoomCode() {
     for (let i = 0; i < 5; i++) {
       code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-  } while (rooms.has(code));
+  } while (getRoom(code));
   return code;
 }
 
@@ -341,7 +398,8 @@ function getVerifiedMember(room, socket, payloadToken = null) {
   if (!room || !room.members) return null;
   const token = (socket && socket.data && socket.data.sessionToken) || payloadToken;
   if (!token) return null;
-  for (const m of room.members.values()) {
+  const membersArray = typeof room.members.values === 'function' ? Array.from(room.members.values()) : Object.values(room.members);
+  for (const m of membersArray) {
     if (m.sessionToken === token) {
       return m;
     }
@@ -350,9 +408,9 @@ function getVerifiedMember(room, socket, payloadToken = null) {
 }
 
 function broadcastRoomUpdate(roomCode) {
-  const room = rooms.get(roomCode);
+  const room = getRoom(roomCode);
   if (!room) return;
-  io.to(roomCode).emit('room_update', sanitizeRoomState(room));
+  io.to(room.code || roomCode).emit('room_update', sanitizeRoomState(room));
 }
 
 function addRoomLog(room, message, type = 'info', meta = null) {
@@ -531,7 +589,7 @@ function handlePlayerSoldOrUnsold(room) {
 }
 
 function advanceToNextPlayer(room) {
-  if (!rooms.has(room.code)) return;
+  if (!getRoom(room.code)) return;
 
   room.auctionIndex += 1;
   if (room.auctionIndex < room.playerPool.length) {
@@ -627,7 +685,7 @@ io.on('connection', (socket) => {
         retentionsAllowed = 2,
         managerName = 'Host'
       } = data || {};
-      const roomCode = generateRoomCode();
+      const roomCode = sanitizeRoomCode(generateRoomCode());
       const token = generateSessionToken();
       const pId = 'usr_' + crypto.randomBytes(6).toString('hex');
       const mName = sanitizeName(managerName, 'Host');
@@ -681,7 +739,7 @@ io.on('connection', (socket) => {
       };
 
       // Register host member
-      newRoom.members.set(pId, {
+      const hostMember = {
         playerId: pId,
         playerName: mName,
         sessionToken: token,
@@ -690,9 +748,11 @@ io.on('connection', (socket) => {
         socketId: socket.id,
         isOnline: true,
         disconnectTimeout: null
-      });
+      };
+      newRoom.members.set(pId, hostMember);
+      newRoom.members[pId] = hostMember;
 
-      rooms.set(roomCode, newRoom);
+      saveRoom(roomCode, newRoom);
       socket.join(roomCode);
       socket.roomCode = roomCode;
       socket.playerId = pId;
@@ -719,26 +779,62 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 2. Join Room (Brand New Joiners Only)
-  socket.on('join_room', ({ roomCode, managerName, sessionToken, asSpectator }, callback) => {
+  // 2. Join Room (Universal Payload & Room Lookup)
+  socket.on('join_room', (data, ...args) => {
     try {
-      if (!roomCode) return callback && callback({ success: false, error: 'Room code is required' });
-      const code = roomCode.toUpperCase().trim();
-      const room = rooms.get(code);
+      // 1. Flexible Payload Extraction
+      let rawCode = '';
+      let playerName = '';
+      let playerId = '';
+      let sessionToken = '';
+      let asSpectator = false;
+      let callback = null;
 
-      if (!room) return callback && callback({ success: false, error: 'Room not found. Check code.' });
+      // Extract callback if passed as trailing argument
+      if (typeof args[args.length - 1] === 'function') {
+        callback = args.pop();
+      } else if (typeof data === 'function') {
+        callback = data;
+        data = null;
+      }
+
+      if (typeof data === 'string') {
+        rawCode = data;
+        playerName = typeof args[0] === 'string' ? args[0] : (args[0]?.playerName || args[0]?.managerName || '');
+        playerId = args[1] || '';
+        sessionToken = args[2] || '';
+        asSpectator = !!args[3];
+      } else if (data && typeof data === 'object') {
+        rawCode = data.roomCode || data.roomId || data.code || '';
+        playerName = data.playerName || data.managerName || data.name || '';
+        playerId = data.playerId || '';
+        sessionToken = data.sessionToken || '';
+        asSpectator = !!data.asSpectator;
+      }
+
+      const cleanCode = sanitizeRoomCode(rawCode);
+      const room = getRoom(cleanCode);
+
+      // 2. Room Verification
+      if (!room) {
+        console.warn(`[JOIN FAILED] Room code not found: "${rawCode}" (Sanitized: "${cleanCode}")`);
+        socket.emit('join_error', { message: 'Room not found. Check code.' });
+        if (typeof callback === 'function') {
+          callback({ success: false, error: 'Room not found. Check code.' });
+        }
+        return;
+      }
 
       if (room.cleanupTimer) {
         clearTimeout(room.cleanupTimer);
         room.cleanupTimer = null;
       }
 
-      const mName = sanitizeName(managerName, 'Player');
-
       // Check if this client has a valid existing session in this room
       if (sessionToken && room.members) {
+        const membersList = typeof room.members.values === 'function' ? Array.from(room.members.values()) : Object.values(room.members);
         let existingMember = null;
-        for (const m of room.members.values()) {
+        for (const m of membersList) {
           if (m.sessionToken === sessionToken) {
             existingMember = m;
             break;
@@ -752,31 +848,46 @@ io.on('connection', (socket) => {
           }
           existingMember.socketId = socket.id;
           existingMember.isOnline = true;
-          existingMember.playerName = mName;
+          if (playerName) {
+            existingMember.playerName = sanitizeName(playerName, existingMember.playerName);
+          }
 
-          socket.join(code);
-          socket.roomCode = code;
+          socket.join(cleanCode);
+          socket.roomCode = cleanCode;
           socket.playerId = existingMember.playerId;
           socket.data = socket.data || {};
           socket.data.sessionToken = existingMember.sessionToken;
           socket.data.playerId = existingMember.playerId;
+          socket.data.roomCode = cleanCode;
 
-          if (existingMember.teamId && room.teams[existingMember.teamId]) {
+          if (existingMember.teamId && room.teams && room.teams[existingMember.teamId]) {
             const t = room.teams[existingMember.teamId];
             t.socketId = socket.id;
-            t.managerName = mName;
+            t.managerName = existingMember.playerName;
             if (room.highestBidder && (room.highestBidder.teamId === t.franchiseId || room.highestBidder.playerId === existingMember.playerId)) {
               room.highestBidder.socketId = socket.id;
             }
           }
 
           sessionRegistry.set(existingMember.sessionToken, {
-            roomId: code,
+            roomId: cleanCode,
             playerId: existingMember.playerId,
             teamId: existingMember.teamId || null,
-            managerName: mName,
+            managerName: existingMember.playerName,
             socketId: socket.id,
             role: existingMember.role
+          });
+
+          const sanitizedState = sanitizeRoomState(room);
+
+          socket.emit('join_success', {
+            roomCode: cleanCode,
+            playerId: existingMember.playerId,
+            sessionToken: existingMember.sessionToken,
+            role: existingMember.role,
+            playerName: existingMember.playerName,
+            room: sanitizedState,
+            roomState: sanitizedState
           });
 
           if (typeof callback === 'function') {
@@ -785,92 +896,139 @@ io.on('connection', (socket) => {
               role: existingMember.role,
               playerId: existingMember.playerId,
               sessionToken: existingMember.sessionToken,
-              roomState: sanitizeRoomState(room)
+              roomState: sanitizedState
             });
           }
-          broadcastRoomUpdate(code);
+          broadcastRoomUpdate(cleanCode);
           return;
         }
       }
 
-      // Check manager name duplication inside active room (among different players)
-      if (!room.members) room.members = new Map();
-      const nameConflict = Array.from(room.members.values()).some(
-        m => m.playerName.trim().toLowerCase() === mName.toLowerCase()
-      );
-      if (nameConflict) {
-        socket.emit('join_error', { message: 'Name already taken in this room.' });
-        return callback && callback({ success: false, error: 'Name already taken in this room.' });
+      // 3. Name Sanitization & Default Fallback
+      const membersList = typeof room.members.values === 'function' ? Array.from(room.members.values()) : Object.values(room.members || {});
+      let cleanName = sanitizeName(playerName, '');
+      if (!cleanName || cleanName.length < 2) {
+        cleanName = `Player ${membersList.length + 1}`;
       }
 
-      // Brand new joiner: ALWAYS generate fresh server token
-      const token = generateSessionToken();
-      const pId = 'usr_' + crypto.randomBytes(6).toString('hex');
+      // 4. Ensure Unique Name in this Room (friendly number suffix if taken)
+      const existingMemberWithName = membersList.find(
+        m => m.playerName && m.playerName.trim().toLowerCase() === cleanName.trim().toLowerCase() && m.playerId !== playerId
+      );
+      if (existingMemberWithName) {
+        cleanName = `${cleanName} (${Math.floor(Math.random() * 90 + 10)})`;
+      }
+
+      // 5. Register Member
+      if (!playerId) {
+        playerId = 'usr_' + crypto.randomBytes(6).toString('hex');
+      }
+      if (!sessionToken) {
+        sessionToken = generateSessionToken();
+      }
+
       const isLobbyFull = Object.keys(room.teams || {}).length >= 10;
       const isAutoSpectator = !!asSpectator || room.isStarted || isLobbyFull;
       const role = isAutoSpectator ? 'spectator' : 'manager';
 
-      room.members.set(pId, {
-        playerId: pId,
-        playerName: mName,
-        sessionToken: token,
+      const memberObj = {
+        playerId,
+        playerName: cleanName,
+        sessionToken,
         teamId: null,
         role,
         socketId: socket.id,
         isOnline: true,
         disconnectTimeout: null
-      });
+      };
 
-      socket.join(code);
-      socket.roomCode = code;
-      socket.playerId = pId;
+      if (!room.members) room.members = new Map();
+      if (typeof room.members.set === 'function') {
+        room.members.set(playerId, memberObj);
+      }
+      room.members[playerId] = memberObj;
+
+      socket.join(cleanCode);
+      socket.roomCode = cleanCode;
+      socket.playerId = playerId;
       socket.data = socket.data || {};
-      socket.data.sessionToken = token;
-      socket.data.playerId = pId;
+      socket.data.sessionToken = sessionToken;
+      socket.data.playerId = playerId;
+      socket.data.roomCode = cleanCode;
 
       if (isAutoSpectator) {
         if (!room.spectators) room.spectators = new Map();
-        room.spectators.set(socket.id, {
+        const specObj = {
           socketId: socket.id,
-          playerId: pId,
-          managerName: mName,
+          playerId,
+          managerName: cleanName,
           supportedTeam: null,
-          sessionToken: token
-        });
-        addRoomLog(room, `👁️ ${mName} joined as Spectator.`);
+          sessionToken
+        };
+        if (typeof room.spectators.set === 'function') {
+          room.spectators.set(socket.id, specObj);
+        }
+        room.spectators[socket.id] = specObj;
+        addRoomLog(room, `👁️ ${cleanName} joined as Spectator.`);
       }
 
-      sessionRegistry.set(token, {
-        roomId: code,
-        playerId: pId,
+      sessionRegistry.set(sessionToken, {
+        roomId: cleanCode,
+        playerId,
         teamId: null,
-        managerName: mName,
+        managerName: cleanName,
         socketId: socket.id,
         role
+      });
+
+      const sanitizedState = sanitizeRoomState(room);
+
+      // 6. Return Success with sessionToken
+      socket.emit('join_success', {
+        roomCode: cleanCode,
+        playerId,
+        sessionToken,
+        role,
+        playerName: cleanName,
+        room: sanitizedState,
+        roomState: sanitizedState
       });
 
       if (typeof callback === 'function') {
         callback({
           success: true,
           role,
-          playerId: pId,
-          sessionToken: token,
-          roomState: sanitizeRoomState(room)
+          playerId,
+          sessionToken,
+          roomState: sanitizedState
         });
       }
 
-      broadcastRoomUpdate(code);
+      // Notify all participants
+      const currentMemberCount = typeof room.members.values === 'function' ? room.members.size : Object.keys(room.members).length;
+      io.to(cleanCode).emit('player_joined', {
+        playerId,
+        playerName: cleanName,
+        role,
+        memberCount: currentMemberCount
+      });
+
+      broadcastRoomUpdate(cleanCode);
     } catch (err) {
-      if (typeof callback === 'function') callback({ success: false, error: err.message });
+      console.error('[ERROR in join_room]:', err);
+      socket.emit('join_error', { message: 'Server error while joining room. Please try again.' });
+      if (typeof callback === 'function') {
+        callback({ success: false, error: 'Server error while joining room. Please try again.' });
+      }
     }
   });
 
   // 2B. Reconnect Player / Resume Session (Strict sessionToken validation)
   const handleReconnect = ({ roomId, roomCode, sessionToken, managerName }, callback) => {
     try {
-      const code = (roomId || roomCode || socket.roomCode || '').toUpperCase().trim();
+      const code = sanitizeRoomCode(roomId || roomCode || socket.roomCode || '');
       if (!code) return callback && callback({ success: false, error: 'Room code is required' });
-      const room = rooms.get(code);
+      const room = getRoom(code);
 
       if (!room) {
         socket.emit('session_invalid', { message: 'Match room expired or not found.' });
@@ -891,7 +1049,8 @@ io.on('connection', (socket) => {
       // Look up member EXCLUSIVELY by sessionToken
       let member = null;
       if (room.members) {
-        for (const m of room.members.values()) {
+        const membersList = typeof room.members.values === 'function' ? Array.from(room.members.values()) : Object.values(room.members);
+        for (const m of membersList) {
           if (m.sessionToken === token) {
             member = m;
             break;
@@ -1002,10 +1161,11 @@ io.on('connection', (socket) => {
   socket.on('reconnect_session', handleReconnect);
 
   // 3. Select Team Franchise (Keyed strictly by franchiseId)
-  socket.on('select_team', ({ franchiseId, managerName, sessionToken }, callback) => {
+  socket.on('select_team', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { franchiseId, managerName, sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
       const member = getVerifiedMember(room, socket, sessionToken);
@@ -1089,10 +1249,11 @@ io.on('connection', (socket) => {
   });
 
   // 4. Submit Retentions
-  socket.on('submit_retentions', ({ playerIds, sessionToken }, callback) => {
+  socket.on('submit_retentions', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { playerIds, sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
       const member = getVerifiedMember(room, socket, sessionToken);
@@ -1196,10 +1357,11 @@ io.on('connection', (socket) => {
   });
 
   // 5. Start Auction (Host)
-  socket.on('start_auction', ({ sessionToken }, callback) => {
+  socket.on('start_auction', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
       const member = getVerifiedMember(room, socket, sessionToken);
       const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
@@ -1246,10 +1408,11 @@ io.on('connection', (socket) => {
   });
 
   // 5B. Controlled Host Wrap-Up (Accelerated Phase / Manual Finalize)
-  socket.on('host_conclude_auction', ({ sessionToken }, callback) => {
+  socket.on('host_conclude_auction', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
       const member = getVerifiedMember(room, socket, sessionToken);
       const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
@@ -1312,10 +1475,11 @@ io.on('connection', (socket) => {
   });
 
   // 6. Place Bid (Synchronous Atomic Handling + Fold Lock Guard + Monotonic Lot Version)
-  socket.on('place_bid', ({ expectedCurrentBid, lotVersion, sessionToken }, callback) => {
+  socket.on('place_bid', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { expectedCurrentBid, lotVersion, sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
       // State Machine Guard (C4, H1, H2, H4): Strictly allow bids ONLY in BIDDING phase
@@ -1443,10 +1607,11 @@ io.on('connection', (socket) => {
   });
 
   // 7. Host Skip Player (Strictly in BIDDING phase)
-  socket.on('skip_player', ({ sessionToken }, callback) => {
+  socket.on('skip_player', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
       const member = getVerifiedMember(room, socket, sessionToken);
       const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
@@ -1477,10 +1642,11 @@ io.on('connection', (socket) => {
   });
 
   // 8. Host Undo Skip
-  socket.on('undo_skip_player', ({ sessionToken }, callback) => {
+  socket.on('undo_skip_player', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
       const member = getVerifiedMember(room, socket, sessionToken);
       const isHostCaller = (member && member.playerId === room.hostPlayerId) || socket.id === room.hostId;
@@ -1531,10 +1697,11 @@ io.on('connection', (socket) => {
   });
 
   // 9. Team FOLD / Pass (Persistent per-lot fold + evaluateFoldConsensus)
-  socket.on('team_fold', ({ sessionToken }, callback) => {
+  socket.on('team_fold', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
       // State Machine Guard (C4, H1, H4): Folds strictly allowed ONLY during BIDDING phase
@@ -1599,26 +1766,32 @@ io.on('connection', (socket) => {
   });
 
   // 9B. Switch User Role (Manager <-> Spectator runtime switch)
-  socket.on('switch_role', ({ role }, callback) => {
+  socket.on('switch_role', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { role } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
       const targetRole = role === 'spectator' ? 'spectator' : 'manager';
-      const member = socket.playerId ? room.members.get(socket.playerId) : null;
+      const member = socket.playerId ? (typeof room.members.get === 'function' ? room.members.get(socket.playerId) : room.members[socket.playerId]) : null;
       if (member) member.role = targetRole;
 
       if (targetRole === 'spectator') {
         if (!room.spectators) room.spectators = new Map();
-        room.spectators.set(socket.id, {
+        const specData = {
           socketId: socket.id,
           playerId: socket.playerId,
           managerName: member ? member.playerName : 'Spectator',
           supportedTeam: null
-        });
+        };
+        if (typeof room.spectators.set === 'function') room.spectators.set(socket.id, specData);
+        if (typeof room.spectators === 'object') room.spectators[socket.id] = specData;
         addRoomLog(room, `👀 ${member ? member.playerName : 'Player'} switched to Spectator View.`);
       } else {
-        if (room.spectators) room.spectators.delete(socket.id);
+        if (room.spectators) {
+          if (typeof room.spectators.delete === 'function') room.spectators.delete(socket.id);
+          delete room.spectators[socket.id];
+        }
         addRoomLog(room, `🔨 ${member ? member.playerName : 'Player'} switched to Manager View.`);
       }
       broadcastRoomUpdate(roomCode);
@@ -1629,10 +1802,11 @@ io.on('connection', (socket) => {
   });
 
   // 9C. Host Kick Participant
-  socket.on('kick_participant', ({ targetPlayerId, targetSocketId }, callback) => {
+  socket.on('kick_participant', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
-      const room = rooms.get(roomCode);
+      const { targetPlayerId, targetSocketId } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
+      const room = getRoom(roomCode);
       if (!room) return callback && callback({ success: false, error: 'Room not found' });
 
       const isHostCaller = (socket.id === room.hostId || (socket.playerId && socket.playerId === room.hostPlayerId));
@@ -1705,16 +1879,17 @@ io.on('connection', (socket) => {
   });
 
   // 9D. Leave Room
-  socket.on('leave_room', ({ roomCode, playerId, sessionToken }, callback) => {
+  socket.on('leave_room', (data, callback) => {
     try {
-      const code = (roomCode || socket.roomCode || '').toUpperCase().trim();
-      const room = rooms.get(code);
+      const { roomCode, playerId, sessionToken } = data || {};
+      const code = sanitizeRoomCode(roomCode || (data && data.roomId) || socket.roomCode || '');
+      const room = getRoom(code);
       if (!room) {
         if (typeof callback === 'function') callback({ success: false, error: 'Room not found' });
         return;
       }
 
-      const member = getVerifiedMember(room, socket, sessionToken) || (socket.playerId && room.members ? room.members.get(socket.playerId) : null);
+      const member = getVerifiedMember(room, socket, sessionToken) || (socket.playerId && room.members ? (typeof room.members.get === 'function' ? room.members.get(socket.playerId) : room.members[socket.playerId]) : null);
       const pId = member ? member.playerId : (playerId || socket.playerId);
 
       if (member) {
@@ -1737,13 +1912,17 @@ io.on('connection', (socket) => {
           member.disconnectTimeout = null;
         }
 
-        if (room.members instanceof Map) {
-          room.members.delete(pId);
+        if (room.members) {
+          if (typeof room.members.delete === 'function') {
+            room.members.delete(pId);
+          }
+          delete room.members[pId];
         }
       }
 
-      if (room.spectators && typeof room.spectators.delete === 'function') {
-        room.spectators.delete(socket.id);
+      if (room.spectators) {
+        if (typeof room.spectators.delete === 'function') room.spectators.delete(socket.id);
+        delete room.spectators[socket.id];
       }
 
       socket.leave(code);
@@ -1785,9 +1964,9 @@ io.on('connection', (socket) => {
 
   // 10. Disconnect (3-Minute Grace Period Engine)
   socket.on('disconnect', () => {
-    const roomCode = socket.roomCode;
+    const roomCode = sanitizeRoomCode(socket.roomCode);
     if (!roomCode) return;
-    const room = rooms.get(roomCode);
+    const room = getRoom(roomCode);
     if (!room) return;
 
     const pId = socket.playerId;
@@ -1837,7 +2016,7 @@ io.on('connection', (socket) => {
             const currentSockets = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
             if (currentSockets.length === 0) {
               RoomTimerManager.clear(room);
-              rooms.delete(roomCode);
+              deleteRoom(roomCode);
               console.log(`[CLEANUP] Room ${roomCode} wiped from memory after 5 min idle.`);
             }
           }, 5 * 60 * 1000);
@@ -1851,9 +2030,9 @@ io.on('connection', (socket) => {
   // 10B. Spectator Cheer & Decibel Engine (Targeted Delivery - H8)
   socket.on('spectator_cheer', ({ teamId, cheerType, cheerEmoji, roomCode: clientRoomCode }) => {
     try {
-      const roomCode = socket.roomCode || clientRoomCode;
+      const roomCode = sanitizeRoomCode(socket.roomCode || clientRoomCode);
       if (!roomCode) return;
-      const room = rooms.get(roomCode);
+      const room = getRoom(roomCode);
       if (!room) return;
 
       // Update decibel meter for all participants
@@ -1911,16 +2090,18 @@ io.on('connection', (socket) => {
   });
 
   // 11. Leave Match (Explicit Cleanup)
-  socket.on('leave_match', ({ sessionToken }, callback) => {
+  socket.on('leave_match', (data, callback) => {
     try {
-      const roomCode = socket.roomCode;
+      const { sessionToken } = data || {};
+      const roomCode = sanitizeRoomCode((data && (data.roomCode || data.roomId)) || socket.roomCode);
       if (sessionToken && sessionRegistry.has(sessionToken)) {
         sessionRegistry.delete(sessionToken);
       }
       if (roomCode) {
-        const room = rooms.get(roomCode);
+        const room = getRoom(roomCode);
         if (room && room.spectators) {
-          room.spectators.delete(socket.id);
+          if (typeof room.spectators.delete === 'function') room.spectators.delete(socket.id);
+          delete room.spectators[socket.id];
         }
         socket.leave(roomCode);
         socket.roomCode = null;
