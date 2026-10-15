@@ -136,7 +136,11 @@ function canConcludeEarly(room) {
   if (teams.length === 0) return false;
   const minRequired = (room.settings && room.settings.minSquadSize) || 15;
   for (const team of teams) {
-    if ((team.squad ? team.squad.length : 0) < minRequired) {
+    let count = (team.squad ? team.squad.length : 0);
+    if (room.currentPlayer && room.highestBidder && room.highestBidder.teamId === team.franchiseId) {
+      count += 1;
+    }
+    if (count < minRequired) {
       return false;
     }
   }
@@ -183,6 +187,46 @@ function triggerAuctionEndSequence(room, reason) {
   room.isConcluding = true;
   room.phase = 'CONCLUDED';
   clearRoomTimer(room);
+  if (typeof RoomTimerManager !== 'undefined') {
+    RoomTimerManager.clear(room);
+  }
+
+  // Safety resolve for active lot if still present (H10)
+  if (room.currentPlayer) {
+    const player = room.currentPlayer;
+    if (room.highestBidder) {
+      const winningTeam = room.teams[room.highestBidder.teamId];
+      if (winningTeam) {
+        winningTeam.purse -= room.currentBid;
+        winningTeam.squad.push({
+          ...player,
+          finalPrice: room.currentBid,
+          acquiredVia: 'AUCTION'
+        });
+        if (player.isOverseas) {
+          winningTeam.overseasCount = (winningTeam.overseasCount || 0) + 1;
+        }
+        winningTeam.squadCount = winningTeam.squad.length;
+        addRoomLog(
+          room,
+          `🔨 SOLD! ${player.name} sold to ${winningTeam.name} (${winningTeam.franchiseId}) for ₹${(room.currentBid / 10000000).toFixed(2)} Cr upon match conclusion!`,
+          'sold',
+          { playerName: player.name, teamName: winningTeam.name, teamId: winningTeam.franchiseId, price: room.currentBid, rating: player.rating }
+        );
+        io.to(room.code).emit('player_sold', {
+          player,
+          team: winningTeam,
+          price: room.currentBid
+        });
+      }
+    } else {
+      room.unsoldPlayers.push(player);
+      addRoomLog(room, `❌ UNSOLD! ${player.name} went unsold as auction concluded.`, 'unsold');
+      io.to(room.code).emit('player_unsold', { player });
+    }
+    room.currentPlayer = null;
+    room.highestBidder = null;
+  }
 
   addRoomLog(room, `🏁 ${reason || 'Auction concluded!'} Tallying final squad points...`, 'finish');
   io.to(room.code).emit('auction_concluding', {
@@ -592,6 +636,13 @@ io.on('connection', (socket) => {
       const decibelMap = {};
       IPL_TEAMS.forEach(t => { decibelMap[t.id] = 50; });
 
+      // Enforce strict settings bounds defense
+      const clampedMaxSquad = Math.min(Math.max(Number(maxSquadSize) || 25, 15), 25);
+      const clampedMinSquad = Math.min(Math.max(Number(minSquadSize) || 15, 10), clampedMaxSquad);
+      const clampedPurse = Math.min(Math.max(Number(initialPurse) || 1000000000, 200000000), 2000000000); // 20 Cr to 200 Cr
+      const clampedOverseas = Math.min(Math.max(Number(maxOverseas) || 8, 4), 8); // 4 to 8
+      const clampedRetentions = Math.min(Math.max(Number(retentionsAllowed) || 0, 0), 4); // 0 to 4
+
       const newRoom = {
         code: roomCode,
         hostId: socket.id,
@@ -602,11 +653,11 @@ io.on('connection', (socket) => {
         isStarted: false,
         isConcluding: false,
         settings: {
-          initialPurse: Number(initialPurse) || 1000000000,
-          maxSquadSize: Number(maxSquadSize) || 25,
-          minSquadSize: Number(minSquadSize) || 15,
-          maxOverseas: Number(maxOverseas) || 8,
-          retentionsAllowed: Math.min(Math.max(Number(retentionsAllowed) || 0, 0), 4)
+          initialPurse: clampedPurse,
+          maxSquadSize: clampedMaxSquad,
+          minSquadSize: clampedMinSquad,
+          maxOverseas: clampedOverseas,
+          retentionsAllowed: clampedRetentions
         },
         members: new Map(),
         teams: {}, // Object keyed strictly by franchise ID ('CSK', 'MI', etc.)
@@ -1057,25 +1108,70 @@ io.on('connection', (socket) => {
         return callback && callback({ success: false, error: 'Match already started. Retentions are locked.' });
       }
 
-      const selectedIds = Array.isArray(playerIds) ? playerIds.slice(0, room.settings.retentionsAllowed) : [];
+      if (!Array.isArray(playerIds)) {
+        return callback && callback({ success: false, error: 'Invalid player selection format.' });
+      }
 
+      const retentionsAllowed = (room.settings && room.settings.retentionsAllowed !== undefined) ? room.settings.retentionsAllowed : 2;
+      if (playerIds.length > retentionsAllowed) {
+        return callback && callback({ success: false, error: `Maximum ${retentionsAllowed} retentions allowed by Room Host.` });
+      }
+
+      // Deduplication check (H5): No duplicate players allowed in the same squad
+      if (new Set(playerIds).size !== playerIds.length) {
+        return callback && callback({ success: false, error: 'Duplicate players cannot be retained in the same squad!' });
+      }
+
+      const maxOverseas = (room.settings && room.settings.maxOverseas) || 8;
       let totalCost = 0;
       const retainedSquad = [];
       let overseas = 0;
 
-      for (let i = 0; i < selectedIds.length; i++) {
-        const pId = selectedIds[i];
+      for (let i = 0; i < playerIds.length; i++) {
+        const pId = playerIds[i];
         const player = playersDataset.find(p => p.id === pId);
-        if (player) {
-          const cost = RETENTION_COSTS[i] || 100000000;
-          totalCost += cost;
-          if (player.isOverseas) overseas += 1;
-          retainedSquad.push({
-            ...player,
-            finalPrice: cost,
-            acquiredVia: 'RETENTION'
+        if (!player) {
+          return callback && callback({ success: false, error: `Player ID ${pId} not found in database.` });
+        }
+
+        // Franchise Alignment Check (H5, H6): Player must belong to this franchise
+        if (player.originalTeam && player.originalTeam !== team.franchiseId) {
+          return callback && callback({
+            success: false,
+            error: `Franchise violation: ${player.name} belongs to ${player.originalTeam}, not ${team.franchiseId}!`
           });
         }
+
+        // Room-Wide Exclusivity Lock (H5): No two teams can retain the same player
+        for (const [otherTeamId, otherTeam] of Object.entries(room.teams || {})) {
+          if (otherTeamId !== team.franchiseId && Array.isArray(otherTeam.retentions) && otherTeam.retentions.includes(pId)) {
+            return callback && callback({
+              success: false,
+              error: `Collision: ${player.name} has already been retained by ${otherTeam.name || otherTeamId}!`
+            });
+          }
+        }
+
+        if (player.isOverseas) {
+          overseas += 1;
+        }
+
+        const cost = RETENTION_COSTS[i] || 100000000;
+        totalCost += cost;
+
+        retainedSquad.push({
+          ...player,
+          finalPrice: cost,
+          acquiredVia: 'RETENTION'
+        });
+      }
+
+      // Overseas Cap Check (H6)
+      if (overseas > maxOverseas) {
+        return callback && callback({
+          success: false,
+          error: `Overseas quota exceeded! Maximum allowed overseas players is ${maxOverseas}.`
+        });
       }
 
       if (totalCost > room.settings.initialPurse) {
@@ -1086,9 +1182,9 @@ io.on('connection', (socket) => {
       team.squad = retainedSquad;
       team.squadCount = retainedSquad.length;
       team.overseasCount = overseas;
-      team.retentions = selectedIds;
+      team.retentions = [...playerIds];
 
-      addRoomLog(room, `${team.name} locked in ${selectedIds.length} retention(s). Remaining purse: ₹${(team.purse / 10000000).toFixed(2)} Cr.`);
+      addRoomLog(room, `${team.name} locked in ${playerIds.length} retention(s). Remaining purse: ₹${(team.purse / 10000000).toFixed(2)} Cr.`);
 
       if (typeof callback === 'function') callback({ success: true, team });
       broadcastRoomUpdate(roomCode);
@@ -1164,6 +1260,46 @@ io.on('connection', (socket) => {
           success: false,
           error: `All franchises must have at least ${minRequired} players before closing early.`
         });
+      }
+
+      // H10: If active bidding is occurring, resolve the active lot before concluding
+      if (room.currentPlayer) {
+        RoomTimerManager.clear(room);
+        const player = room.currentPlayer;
+        if (room.highestBidder) {
+          const winningTeam = room.teams[room.highestBidder.teamId];
+          if (winningTeam) {
+            winningTeam.purse -= room.currentBid;
+            winningTeam.squad.push({
+              ...player,
+              finalPrice: room.currentBid,
+              acquiredVia: 'AUCTION'
+            });
+            if (player.isOverseas) {
+              winningTeam.overseasCount = (winningTeam.overseasCount || 0) + 1;
+            }
+            winningTeam.squadCount = winningTeam.squad.length;
+
+            addRoomLog(
+              room,
+              `🔨 SOLD! ${player.name} sold to ${winningTeam.name} (${winningTeam.franchiseId}) for ₹${(room.currentBid / 10000000).toFixed(2)} Cr upon match conclusion!`,
+              'sold',
+              { playerName: player.name, teamName: winningTeam.name, teamId: winningTeam.franchiseId, price: room.currentBid, rating: player.rating }
+            );
+
+            io.to(room.code).emit('player_sold', {
+              player,
+              team: winningTeam,
+              price: room.currentBid
+            });
+          }
+        } else {
+          room.unsoldPlayers.push(player);
+          addRoomLog(room, `❌ UNSOLD! ${player.name} went unsold as auction concluded.`, 'unsold');
+          io.to(room.code).emit('player_unsold', { player });
+        }
+        room.currentPlayer = null;
+        room.highestBidder = null;
       }
 
       triggerAuctionEndSequence(room, 'Host concluded auction & finalized squads.');
@@ -1710,10 +1846,10 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomCode);
   });
 
-  // 10B. Spectator Cheer & Decibel Engine (Targeted Delivery)
-  socket.on('spectator_cheer', ({ teamId, cheerType, cheerEmoji }) => {
+  // 10B. Spectator Cheer & Decibel Engine (Targeted Delivery - H8)
+  socket.on('spectator_cheer', ({ teamId, cheerType, cheerEmoji, roomCode: clientRoomCode }) => {
     try {
-      const roomCode = socket.roomCode;
+      const roomCode = socket.roomCode || clientRoomCode;
       if (!roomCode) return;
       const room = rooms.get(roomCode);
       if (!room) return;
@@ -1725,15 +1861,23 @@ io.on('connection', (socket) => {
       }
 
       const tId = (teamId || '').toUpperCase();
+      let currentDecibel = 50;
       if (tId && room.decibelMeter[tId] !== undefined) {
         room.decibelMeter[tId] = Math.min(100, (room.decibelMeter[tId] || 50) + 6);
+        currentDecibel = room.decibelMeter[tId];
       }
 
-      // Broadcast global decibel update
+      // Broadcast global decibel update (H8 unified contract + backward compatibility)
+      io.to(roomCode).emit('update_decibel_meter', {
+        decibelMeter: room.decibelMeter,
+        teamId: tId,
+        currentDecibel
+      });
       io.to(roomCode).emit('decibel_update', {
         decibelMeter: room.decibelMeter,
         cheeredTeam: tId,
-        cheerType: cheerType || 'cheer'
+        cheerType: cheerType || 'cheer',
+        currentDecibel
       });
 
       // Target delivery: send floating particles only to the cheering spectator and the cheered franchise manager
@@ -1741,16 +1885,19 @@ io.on('connection', (socket) => {
         teamId: tId,
         cheerType: cheerType || 'cheer',
         cheerEmoji: cheerEmoji || '👏',
+        currentDecibel,
         fromSpectator: socket.id
       };
 
-      // 1. Emit to cheering spectator
+      // 1. Emit to cheering spectator (both event names for seamless contract matching)
+      socket.emit('spectator_cheer_effect', cheerPayload);
       socket.emit('team_cheered', cheerPayload);
 
       // 2. Locate franchise manager socket and emit targeted cheer
       if (tId && room.teams) {
         for (const team of Object.values(room.teams)) {
           if (team.franchiseId === tId && team.socketId && team.socketId !== socket.id) {
+            io.to(team.socketId).emit('spectator_cheer_effect', cheerPayload);
             io.to(team.socketId).emit('team_cheered', cheerPayload);
             break;
           }
