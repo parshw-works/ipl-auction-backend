@@ -123,6 +123,33 @@ let currentRetentionFilter = 'ALL';
 let currentRetentionSearch = '';
 const RETENTION_COSTS = [180000000, 140000000, 110000000, 180000000, 140000000];
 let isBidCooldown = false;
+let currentLotVersion = 1;
+
+// XSS Sanitizer for rendering user-supplied strings into innerHTML
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Retrieve active session token for given or active room
+function getActiveSessionToken(roomCode) {
+  const code = (roomCode || currentRoomCode || (currentRoom && currentRoom.code) || '').toUpperCase().trim();
+  if (!code) return null;
+  try {
+    const raw = localStorage.getItem('ipl_active_sessions');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed[code] && parsed[code].sessionToken) {
+      return parsed[code].sessionToken;
+    }
+  } catch (e) {}
+  return null;
+}
 
 // =========================================================================
 // GLOBAL AUDIO & SPEECH ENGINE SINGLETON (localStorage persisted)
@@ -265,8 +292,9 @@ function executeLeaveMatch() {
 
   // A. Notify Server
   const activeSocket = window.socket || (typeof socket !== 'undefined' ? socket : null);
+  const sessionToken = typeof getActiveSessionToken === 'function' ? getActiveSessionToken(roomCode) : null;
   if (activeSocket && activeSocket.connected && roomCode) {
-    activeSocket.emit('leave_room', { roomCode, playerId });
+    activeSocket.emit('leave_room', { roomCode, playerId, sessionToken });
   }
 
   // B. Purge Session from LocalStorage
@@ -965,11 +993,11 @@ function renderOngoingMatches() {
         <div class="min-w-0">
           <div class="flex items-center space-x-1.5">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span class="font-mono font-bold text-white text-xs tracking-wider">${s.roomCode}</span>
+            <span class="font-mono font-bold text-white text-xs tracking-wider">${escapeHtml(s.roomCode)}</span>
             <span class="text-slate-600">•</span>
             ${teamBadge}
           </div>
-          <div class="text-[11px] text-slate-300 font-sans truncate font-medium">${s.managerName}</div>
+          <div class="text-[11px] text-slate-300 font-sans truncate font-medium">${escapeHtml(s.managerName)}</div>
         </div>
       </div>
       <div class="flex items-center space-x-2 flex-shrink-0">
@@ -1022,19 +1050,19 @@ function reconnectToRoom(roomCode, session) {
   if (!s) return;
 
   const pId = (session && session.playerId) || getOrCreatePlayerId();
+  const token = (session && session.sessionToken) || getActiveSessionToken(roomCode);
   showToast(`Switching to Arena [${roomCode}]...`, 'info');
 
   s.emit('reconnect_session', {
     roomId: roomCode,
     roomCode: roomCode,
     playerId: pId,
-    sessionToken: session.sessionToken,
-    teamId: session.teamId,
-    franchiseId: session.teamId,
+    sessionToken: token,
     managerName: session.managerName
   }, (res) => {
     if (res && res.success) {
       currentRoom = res.roomState;
+      if (currentRoom && currentRoom.lotVersion) currentLotVersion = currentRoom.lotVersion;
       isHost = (currentRoom.hostPlayerId === pId || s.id === currentRoom.hostId);
       currentRole = res.role || (res.team ? 'manager' : 'spectator');
 
@@ -1382,7 +1410,7 @@ function showToast(message, type = 'info') {
   toast.className = `py-1.5 px-3.5 rounded-full border shadow-2xl flex items-center space-x-2 text-[11px] sm:text-xs font-semibold backdrop-blur-md transition-all duration-300 pointer-events-auto transform -translate-y-2 opacity-0 select-none ${bgClasses[type] || bgClasses.info}`;
   toast.innerHTML = `
     <i class="fa-solid ${type === 'error' ? 'fa-circle-xmark text-rose-400' : type === 'success' ? 'fa-circle-check text-emerald-400' : type === 'warning' ? 'fa-triangle-exclamation text-amber-400' : 'fa-bell text-laserCyan'} text-xs"></i>
-    <span class="truncate max-w-[280px] sm:max-w-sm">${message}</span>
+    <span class="truncate max-w-[280px] sm:max-w-sm">${escapeHtml(message)}</span>
   `;
 
   toastContainer.appendChild(toast);
@@ -1527,7 +1555,8 @@ function joinRoomAction(asSpectator = false) {
 
   const performJoin = () => {
     const pId = getOrCreatePlayerId();
-    socket.emit('join_room', { roomCode, managerName: mName, playerId: pId, asSpectator }, (res) => {
+    const token = getActiveSessionToken(roomCode);
+    socket.emit('join_room', { roomCode, managerName: mName, sessionToken: token, asSpectator }, (res) => {
       clearTimeout(timeout);
       if (activeBtn) {
         activeBtn.disabled = false;
@@ -1536,6 +1565,7 @@ function joinRoomAction(asSpectator = false) {
 
       if (res && res.success) {
         currentRoom = res.roomState;
+        if (currentRoom && currentRoom.lotVersion) currentLotVersion = currentRoom.lotVersion;
         isHost = (currentRoom.hostPlayerId === pId || currentRoom.hostId === socket.id);
         currentRole = res.role || (asSpectator || currentRoom.isStarted ? 'spectator' : 'manager');
         myTeam = null;
@@ -1653,7 +1683,7 @@ function renderFranchiseGrid() {
         isMine 
           ? `<span class="px-3 py-1 text-[9px] font-black font-display rounded-full bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 uppercase tracking-widest shadow-md">WAR ROOM ACTIVE</span>`
           : isTaken 
-          ? `<span class="px-2.5 py-0.5 text-[9px] font-bold rounded-full bg-[#121a32] text-slate-400 truncate max-w-full font-mono border border-white/10">LOCKED: ${teamOwner.managerName}</span>`
+          ? `<span class="px-2.5 py-0.5 text-[9px] font-bold rounded-full bg-[#121a32] text-slate-400 truncate max-w-full font-mono border border-white/10">LOCKED: ${escapeHtml(teamOwner.managerName)}</span>`
           : `<span class="shimmer-btn px-3 py-1 text-[9px] font-black font-display rounded-full bg-victoryEmerald/20 text-victoryEmerald border border-victoryEmerald/40 uppercase tracking-wider hover:bg-victoryEmerald hover:text-slate-950 transition">CLAIM CREST</span>`
       }
     `;
@@ -1673,12 +1703,13 @@ function renderFranchiseGrid() {
 function selectFranchise(franchiseId) {
   const managerName = inputManagerName.value.trim() || 'Player ' + Math.floor(Math.random() * 90 + 10);
   const pId = getOrCreatePlayerId();
-  socket.emit('select_team', { franchiseId, managerName, playerId: pId }, (res) => {
+  const sessionToken = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+  socket.emit('select_team', { franchiseId, managerName, sessionToken }, (res) => {
     if (res && res.success) {
       myTeam = res.team;
       currentFranchiseRoster = res.franchiseRoster || [];
       mySelectedRetentions = res.team.retentions || [];
-      saveActiveSession(currentRoom.code, managerName, myTeam.franchiseId, null, 'manager', pId);
+      saveActiveSession(currentRoom.code, managerName, myTeam.franchiseId, sessionToken, 'manager', pId);
       updateUserFranchisePill();
       renderFranchiseGrid();
       updateLobbyRetentionBanner();
@@ -1946,7 +1977,8 @@ btnSkipRetentions.addEventListener('click', () => {
     return;
   }
   mySelectedRetentions = [];
-  socket.emit('submit_retentions', { playerIds: [] }, (res) => {
+  const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+  socket.emit('submit_retentions', { playerIds: [], sessionToken: token }, (res) => {
     if (res && res.success) {
       myTeam = res.team;
       updateUserFranchisePill();
@@ -1959,7 +1991,8 @@ btnSkipRetentions.addEventListener('click', () => {
 
 // Save & Lock Retentions in Modal
 btnSaveRetentionsModal.addEventListener('click', () => {
-  socket.emit('submit_retentions', { playerIds: mySelectedRetentions }, (res) => {
+  const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+  socket.emit('submit_retentions', { playerIds: mySelectedRetentions, sessionToken: token }, (res) => {
     if (res && res.success) {
       myTeam = res.team;
       updateUserFranchisePill();
@@ -1973,13 +2006,20 @@ btnSaveRetentionsModal.addEventListener('click', () => {
   });
 });
 
-// Start Auction (Host)
+// Start Auction (Host) - Gated with immediate disable guard (H1)
 btnStartAuctionHost.addEventListener('click', () => {
-  socket.emit('start_auction', {}, (res) => {
+  const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+  btnStartAuctionHost.disabled = true;
+  const origText = btnStartAuctionHost.innerHTML;
+  btnStartAuctionHost.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Launching...';
+
+  socket.emit('start_auction', { sessionToken: token }, (res) => {
     if (res && res.success) {
       showToast('Auction starting!', 'success');
       speakCommentary('The Indian Premier League Mega Auction has officially begun! Ladies and gentlemen, take your seats.');
     } else {
+      btnStartAuctionHost.disabled = false;
+      btnStartAuctionHost.innerHTML = origText;
       showToast(res ? res.error : 'Cannot start auction', 'error');
     }
   });
@@ -1989,7 +2029,8 @@ btnStartAuctionHost.addEventListener('click', () => {
 if (btnHostSkipPlayer) {
   btnHostSkipPlayer.addEventListener('click', () => {
     if (!confirm('Pass / skip this player to unsold?')) return;
-    socket.emit('skip_player', {}, (res) => {
+    const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+    socket.emit('skip_player', { sessionToken: token }, (res) => {
       if (!res || !res.success) {
         showToast(res ? res.error : 'Failed to skip', 'error');
       }
@@ -2000,7 +2041,8 @@ if (btnHostSkipPlayer) {
 // Host Undo Skip Player
 if (btnHostUndoSkipPlayer) {
   btnHostUndoSkipPlayer.addEventListener('click', () => {
-    socket.emit('undo_skip_player', {}, (res) => {
+    const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+    socket.emit('undo_skip_player', { sessionToken: token }, (res) => {
       if (res && res.success) {
         showToast('Restored skipped player to hammer!', 'success');
       } else {
@@ -2419,7 +2461,8 @@ btnFoldPlayer.addEventListener('click', () => {
     return;
   }
 
-  socket.emit('team_fold', {}, (res) => {
+  const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+  socket.emit('team_fold', { sessionToken: token }, (res) => {
     if (res && res.success) {
       playBeep(320, 'sine', 0.15);
       showToast('You folded on this player!', 'info');
@@ -2470,12 +2513,15 @@ btnPlaceBid.addEventListener('click', () => {
     updateBidButton();
   }, 400);
 
-  socket.emit('place_bid', { expectedCurrentBid }, (res) => {
+  const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+  socket.emit('place_bid', { expectedCurrentBid, lotVersion: currentLotVersion, sessionToken: token }, (res) => {
     isBidCooldown = false;
     if (res && res.success) {
+      if (res.lotVersion !== undefined) currentLotVersion = res.lotVersion;
       playBidSound();
       updateBidButton();
     } else {
+      if (res && res.lotVersion !== undefined) currentLotVersion = res.lotVersion;
       playBeep(200, 'sawtooth', 0.25);
       showToast(res ? res.error : 'Bid was rejected', 'error');
       const updatedPrice = res ? (res.serverCurrentBid !== undefined ? res.serverCurrentBid : res.currentBid) : null;
@@ -2513,7 +2559,7 @@ function updateDrawerTeams() {
               <span>${team.name}</span>
               ${isMe ? '<span class="text-[9px] px-1.5 py-0.2 bg-amber-400 text-slate-950 font-black rounded font-mono">YOU</span>' : ''}
             </div>
-            <div class="text-[10px] text-slate-400 font-sans">${team.managerName}</div>
+            <div class="text-[10px] text-slate-400 font-sans">${escapeHtml(team.managerName)}</div>
           </div>
         </div>
         <div class="text-right">
@@ -3197,7 +3243,7 @@ function renderLogEntry(entry) {
       <span class="font-display font-bold uppercase tracking-wider text-slate-400">${entry.type || 'INFO'}</span>
     </div>
     <div class="font-sans text-slate-200 leading-snug">
-      ${typeIcons[entry.type] || ''}${entry.message}
+      ${typeIcons[entry.type] || ''}${escapeHtml(entry.message)}
     </div>
   `;
 
@@ -3460,6 +3506,9 @@ function registerSocketAuctionListeners(s) {
 
   s.on('room_update', (roomState) => {
     currentRoom = roomState;
+    if (roomState && roomState.lotVersion !== undefined) {
+      currentLotVersion = roomState.lotVersion;
+    }
     isHost = currentRoom.hostId === s.id;
 
     if (myTeam) {
@@ -3517,7 +3566,10 @@ function registerSocketAuctionListeners(s) {
     }
   });
 
-  s.on('bid_accepted', ({ currentBid, highestBidder, foldedTeams }) => {
+  s.on('bid_accepted', ({ currentBid, highestBidder, foldedTeams, lotVersion }) => {
+    if (lotVersion !== undefined) {
+      currentLotVersion = lotVersion;
+    }
     const prevBid = currentRoom ? currentRoom.currentBid : 0;
     const bidDiff = prevBid > 0 ? (currentBid - prevBid) : currentBid;
 
@@ -3620,9 +3672,15 @@ function registerSocketAuctionListeners(s) {
 
   s.on('new_lot_started', ({ player, lot, teams }) => {
     // Fresh lot arrival: complete reset of fold registry (Strict Rule 4)
+    if (lot && lot.lotVersion !== undefined) {
+      currentLotVersion = lot.lotVersion;
+    } else {
+      currentLotVersion = 1;
+    }
     if (currentRoom) {
       currentRoom.foldedTeams = [];
       currentRoom.foldedCount = 0;
+      currentRoom.lotVersion = currentLotVersion;
       if (player) currentRoom.currentPlayer = player;
       if (lot) {
         if (lot.currentBid !== undefined) currentRoom.currentBid = lot.currentBid;
