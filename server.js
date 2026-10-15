@@ -333,7 +333,9 @@ function checkCapacityAndFinanceEndCondition(room) {
 }
 
 function sanitizeRoomState(room) {
-  const foldedList = Array.from(room.foldedTeams || []);
+  const foldedList = (room.currentLot && Array.isArray(room.currentLot.foldedTeamIds))
+    ? [...room.currentLot.foldedTeamIds]
+    : (Array.isArray(room.foldedTeams) ? [...room.foldedTeams] : Array.from(room.foldedTeams || []));
   const membersList = room.members ? Array.from(room.members.values()).map((m, idx) => ({
     memberId: 'm_' + (idx + 1),
     displayName: m.playerName,
@@ -362,6 +364,7 @@ function sanitizeRoomState(room) {
     settings: room.settings,
     teams: teamList,
     currentPlayer: room.currentPlayer,
+    currentLot: room.currentLot || null,
     currentBid: room.currentBid,
     highestBidder: room.highestBidder,
     timerSeconds: room.timerSeconds,
@@ -481,40 +484,54 @@ function startCountdown(room) {
 }
 
 // Strict Fold Consensus Resolution (Bug 1 Fix)
+function resolveLotSold(room, teamId, price) {
+  room.phase = 'HAMMER';
+  clearRoomTimer(room);
+  handlePlayerSoldOrUnsold(room);
+  return { handled: true, outcome: 'sold' };
+}
+
+function resolveLotUnsold(room, reason) {
+  room.phase = 'HAMMER';
+  clearRoomTimer(room);
+  handlePlayerSoldOrUnsold(room);
+  return { handled: true, outcome: 'unsold' };
+}
+
 function evaluateFoldConsensus(room) {
-  if (!room || room.status !== 'AUCTION' || !room.currentPlayer) return { handled: false };
-  if (!room.foldedTeams) room.foldedTeams = new Set();
+  const lot = room.currentLot;
+  if (!lot || room.phase !== 'BIDDING' || room.status !== 'AUCTION') return { handled: false };
 
   const allTeamIds = Object.keys(room.teams || {});
-  const unfoldedTeams = allTeamIds.filter(teamId => !room.foldedTeams.has(teamId));
+  const folded = Array.isArray(lot.foldedTeamIds) ? lot.foldedTeamIds : (Array.isArray(room.foldedTeams) ? room.foldedTeams : []);
+  const unfolded = allTeamIds.filter(id => !folded.includes(id));
 
-  // SCENARIO 1: Opening bid exists, and ALL other teams have folded
-  // (i.e. only 1 team unfolded, and that team is the highest bidder)
-  if (room.highestBidder && unfoldedTeams.length === 1 && unfoldedTeams[0] === room.highestBidder.teamId) {
-    RoomTimerManager.clear(room);
+  // SCENARIO 1: Opening bid exists, and ALL rival teams have folded -> SOLD immediately
+  if (lot.hasOpeningBid && unfolded.length === 1 && unfolded[0] === lot.highestBidderTeamId) {
+    clearRoomTimer(room);
+    room.phase = 'HAMMER';
     addRoomLog(
       room,
-      `⚡ Consensus reached! All rival franchises folded on ${room.currentPlayer.name}. Instant hammer!`,
+      `⚡ Consensus reached! All rival franchises folded on ${room.currentPlayer?.name || lot.name}. Instant hammer!`,
       'announcement'
     );
     io.to(room.code).emit('all_teams_folded', {
-      player: room.currentPlayer,
+      player: room.currentPlayer || lot,
       highestBidder: room.highestBidder
     });
-    handlePlayerSoldOrUnsold(room);
-    return { handled: true, outcome: 'sold' };
+    return resolveLotSold(room, lot.highestBidderTeamId, lot.currentBid);
   }
 
-  // SCENARIO 2: No bids placed and ALL teams folded -> UNSOLD
-  if (!room.highestBidder && unfoldedTeams.length === 0) {
-    RoomTimerManager.clear(room);
+  // SCENARIO 2: No bids placed and ALL teams folded -> UNSOLD immediately
+  if (!lot.hasOpeningBid && unfolded.length === 0) {
+    clearRoomTimer(room);
+    room.phase = 'HAMMER';
     addRoomLog(
       room,
-      `⚡ All franchises passed on ${room.currentPlayer.name}. Instant unsold!`,
+      `⚡ All franchises passed on ${room.currentPlayer?.name || lot.name}. Instant unsold!`,
       'announcement'
     );
-    handlePlayerSoldOrUnsold(room);
-    return { handled: true, outcome: 'unsold' };
+    return resolveLotUnsold(room, 'All teams passed with no bids.');
   }
 
   return { handled: false };
@@ -566,7 +583,10 @@ function handlePlayerSoldOrUnsold(room) {
   }
 
   // Clear all lot folds immediately so no team remains locked during the transition
-  if (room.foldedTeams) room.foldedTeams.clear();
+  if (room.currentLot) {
+    room.currentLot.foldedTeamIds = [];
+  }
+  room.foldedTeams = [];
   if (room.teams) {
     for (const t of Object.values(room.teams)) {
       t.isFolded = false;
@@ -602,24 +622,35 @@ function advanceToNextPlayer(room) {
     room.openingBidPlaced = false;
     room.timerSeconds = 15;
     room.isTimerRunning = false;
-    room.foldedTeams = new Set();
+    room.foldedTeams = [];
+
+    // A. Initialize fresh lot with null leader and empty array
+    room.currentLot = {
+      ...nextPlayer,
+      player: nextPlayer,
+      currentBid: nextPlayer.basePrice,
+      basePrice: nextPlayer.basePrice,
+      highestBidderTeamId: null,
+      highestBidder: null,
+      hasOpeningBid: false,
+      lotVersion: 1,
+      auctionIndex: room.auctionIndex,
+      totalPlayers: room.playerPool.length,
+      foldedTeamIds: [] // MUST be an Array so it serializes cleanly over Socket.IO
+    };
+
+    // B. Clear folded flag on all team objects in the room
     if (room.teams) {
-      for (const t of Object.values(room.teams)) {
-        t.isFolded = false;
-      }
+      Object.values(room.teams).forEach(team => {
+        team.isFolded = false;
+      });
     }
     startCountdown(room);
 
-    // Notify all clients of the fresh lot with empty folds
+    // C. Set phase to BIDDING and broadcast
     io.to(room.code).emit('new_lot_started', {
       player: nextPlayer,
-      lot: {
-        player: nextPlayer,
-        currentBid: nextPlayer.basePrice,
-        lotVersion: room.lotVersion,
-        auctionIndex: room.auctionIndex,
-        totalPlayers: room.playerPool.length
-      },
+      lot: room.currentLot,
       teams: Object.values(room.teams).map(t => {
         const copy = { ...t };
         delete copy.sessionToken;
@@ -726,7 +757,8 @@ io.on('connection', (socket) => {
         playerPool,
         unsoldPlayers: [],
         skipHistory: [],
-        foldedTeams: new Set(),
+        foldedTeams: [],
+        currentLot: null,
         auctionIndex: -1,
         currentPlayer: null,
         currentBid: 0,
@@ -1500,7 +1532,19 @@ io.on('connection', (socket) => {
       }
 
       // STRICT CHECK: Block folded teams from placing any bids on this player
-      if (room.foldedTeams && room.foldedTeams.has(team.franchiseId)) {
+      room.currentLot = room.currentLot || {
+        ...room.currentPlayer,
+        player: room.currentPlayer,
+        currentBid: room.currentBid,
+        basePrice: room.currentPlayer ? room.currentPlayer.basePrice : 10000000,
+        highestBidderTeamId: null,
+        hasOpeningBid: false,
+        lotVersion: room.lotVersion || 1,
+        foldedTeamIds: []
+      };
+      room.currentLot.foldedTeamIds = room.currentLot.foldedTeamIds || [];
+      if (room.currentLot.foldedTeamIds.includes(team.franchiseId) || room.teams[team.franchiseId]?.isFolded) {
+        socket.emit('error_toast', 'You have folded for this player and cannot bid.');
         return callback && callback({ success: false, error: 'You have folded for this player and cannot bid.' });
       }
 
@@ -1577,6 +1621,16 @@ io.on('connection', (socket) => {
         color: team.color
       };
 
+      // Accept bid, update leader, increment sequence
+      room.currentLot.hasOpeningBid = true;
+      room.currentLot.highestBidderTeamId = team.franchiseId;
+      room.currentLot.highestBidder = room.highestBidder;
+      room.currentLot.currentBid = nextBidAmount;
+      room.currentLot.lotVersion = room.lotVersion;
+
+      // CRITICAL: DO NOT clear room.currentLot.foldedTeamIds here!
+      // Teams that folded remain folded for this player.
+
       addRoomLog(
         room,
         `💰 ${team.name} (${team.franchiseId}) raised bid to ₹${(nextBidAmount / 10000000).toFixed(2)} Cr!`,
@@ -1588,10 +1642,14 @@ io.on('connection', (socket) => {
       startCountdown(room);
 
       io.to(room.code).emit('bid_accepted', {
+        lot: room.currentLot,
         currentBid: room.currentBid,
         highestBidder: room.highestBidder,
-        lotVersion: room.lotVersion,
-        nextIncrement: calculateIncrement(room.currentBid)
+        highestBidderTeamId: team.franchiseId,
+        lotVersion: room.currentLot.lotVersion,
+        nextIncrement: calculateIncrement(room.currentBid),
+        foldedTeams: room.currentLot.foldedTeamIds,
+        foldedTeamIds: room.currentLot.foldedTeamIds
       });
 
       // Check consensus hammer resolution after bid
@@ -1679,7 +1737,18 @@ io.on('connection', (socket) => {
       room.openingBidPlaced = false;
       room.timerSeconds = 15;
       room.isTimerRunning = false;
-      room.foldedTeams = new Set();
+      room.foldedTeams = [];
+      room.currentLot = {
+        ...lastSkipped.player,
+        player: lastSkipped.player,
+        currentBid: lastSkipped.player.basePrice,
+        basePrice: lastSkipped.player.basePrice,
+        highestBidderTeamId: null,
+        highestBidder: null,
+        hasOpeningBid: false,
+        lotVersion: room.lotVersion,
+        foldedTeamIds: []
+      };
       if (room.teams) {
         for (const t of Object.values(room.teams)) {
           t.isFolded = false;
@@ -1720,32 +1789,54 @@ io.on('connection', (socket) => {
         return callback && callback({ success: false, error: 'Unauthorized team action.' });
       }
 
-      // Security: Leading/Highest bidder CANNOT fold against their own bid!
-      if (room.highestBidder && (room.highestBidder.socketId === socket.id || room.highestBidder.teamId === team.franchiseId || (member && room.highestBidder.playerId === member.playerId))) {
+      const teamId = team.franchiseId;
+      if (!room.currentLot) {
+        room.currentLot = {
+          ...room.currentPlayer,
+          player: room.currentPlayer,
+          currentBid: room.currentBid,
+          basePrice: room.currentPlayer ? room.currentPlayer.basePrice : 10000000,
+          highestBidderTeamId: room.highestBidder ? room.highestBidder.teamId : null,
+          highestBidder: room.highestBidder,
+          hasOpeningBid: Boolean(room.highestBidder),
+          lotVersion: room.lotVersion || 1,
+          foldedTeamIds: []
+        };
+      }
+
+      // Rule A: Highest bidder CANNOT fold against their own active bid
+      if (room.currentLot.hasOpeningBid && room.currentLot.highestBidderTeamId === teamId) {
+        socket.emit('error_toast', 'You hold the highest bid and cannot fold.');
         return callback && callback({ success: false, error: 'You are the highest bidder! Leading team cannot fold.' });
       }
 
-      if (!room.foldedTeams) room.foldedTeams = new Set();
-
-      // Rule 2: A team that folds must NEVER be un-folded on that same player
-      if (room.foldedTeams.has(team.franchiseId) || team.isFolded) {
-        return callback && callback({ success: false, error: 'You have already folded for this player.' });
+      // Rule B: Add to lot folds array if not already present
+      room.currentLot.foldedTeamIds = room.currentLot.foldedTeamIds || [];
+      if (!room.currentLot.foldedTeamIds.includes(teamId)) {
+        room.currentLot.foldedTeamIds.push(teamId);
+      }
+      if (!room.foldedTeams) room.foldedTeams = [];
+      if (!Array.isArray(room.foldedTeams)) room.foldedTeams = [];
+      if (!room.foldedTeams.includes(teamId)) {
+        room.foldedTeams.push(teamId);
       }
 
-      // Mark this team as folded for this player
-      room.foldedTeams.add(team.franchiseId);
-      team.isFolded = true;
+      // Rule C: Set isFolded on the team object
+      if (room.teams[teamId]) {
+        room.teams[teamId].isFolded = true;
+      }
 
       addRoomLog(
         room,
-        `✋ ${team.name} (${team.franchiseId}) folded on ${room.currentPlayer.name}.`,
+        `✋ ${team.name} (${teamId}) folded on ${room.currentPlayer.name}.`,
         'info'
       );
 
-      // Broadcast fold to all clients
+      // Broadcast fold state to everyone
       io.to(room.code).emit('team_folded', {
-        teamId: team.franchiseId,
-        foldedCount: room.foldedTeams.size,
+        teamId,
+        foldedTeamIds: room.currentLot.foldedTeamIds,
+        foldedCount: room.currentLot.foldedTeamIds.length,
         totalEligible: Object.keys(room.teams || {}).length
       });
 
@@ -1754,11 +1845,12 @@ io.on('connection', (socket) => {
       if (typeof callback === 'function') {
         callback({
           success: true,
-          folded: true
+          folded: true,
+          foldedTeamIds: room.currentLot.foldedTeamIds
         });
       }
 
-      // Check lot resolution strictly
+      // Evaluate instant hammer consensus
       evaluateFoldConsensus(room);
     } catch (err) {
       if (typeof callback === 'function') callback({ success: false, error: err.message });
@@ -1858,8 +1950,13 @@ io.on('connection', (socket) => {
           delete room.teams[kickedTeamId];
         } else {
           // In-auction: mark auto-folded so match doesn't stall
-          if (!room.foldedTeams) room.foldedTeams = new Set();
-          room.foldedTeams.add(kickedTeamId);
+          if (!room.foldedTeams) room.foldedTeams = [];
+          if (!Array.isArray(room.foldedTeams)) room.foldedTeams = [];
+          if (!room.foldedTeams.includes(kickedTeamId)) room.foldedTeams.push(kickedTeamId);
+          if (room.currentLot) {
+            room.currentLot.foldedTeamIds = room.currentLot.foldedTeamIds || [];
+            if (!room.currentLot.foldedTeamIds.includes(kickedTeamId)) room.currentLot.foldedTeamIds.push(kickedTeamId);
+          }
           room.teams[kickedTeamId].isFolded = true;
           evaluateFoldConsensus(room);
         }
@@ -1901,8 +1998,13 @@ io.on('connection', (socket) => {
           }
         } else if (room.isStarted && teamId && room.teams && room.teams[teamId]) {
           // If auction is live, mark folded so match does not stall
-          if (!room.foldedTeams) room.foldedTeams = new Set();
-          room.foldedTeams.add(teamId);
+          if (!room.foldedTeams) room.foldedTeams = [];
+          if (!Array.isArray(room.foldedTeams)) room.foldedTeams = [];
+          if (!room.foldedTeams.includes(teamId)) room.foldedTeams.push(teamId);
+          if (room.currentLot) {
+            room.currentLot.foldedTeamIds = room.currentLot.foldedTeamIds || [];
+            if (!room.currentLot.foldedTeamIds.includes(teamId)) room.currentLot.foldedTeamIds.push(teamId);
+          }
           room.teams[teamId].isFolded = true;
           evaluateFoldConsensus(room);
         }
