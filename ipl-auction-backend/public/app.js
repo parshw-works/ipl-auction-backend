@@ -2553,10 +2553,11 @@ function syncAllBiddingControls() {
   const hasOpeningBid = Boolean(lot.hasOpeningBid && leadingFranchise);
   const isLeading = Boolean(hasOpeningBid && leadingFranchise === myFranchise);
 
-  // Check if my team is folded on this lot
-  const foldedList = Array.isArray(lot.foldedTeamIds) ? lot.foldedTeamIds.map(x => String(x).toUpperCase()) : [];
-  const myTeamObj = room.teams ? (room.teams[myFranchise] || Object.values(room.teams).find(t => String(t.franchiseId || t.teamId).toUpperCase() === myFranchise)) : null;
-  const isFolded = Boolean((myTeam && myTeam.isFolded) || myTeamObj?.isFolded || foldedList.includes(myFranchise));
+  // Check if my team is folded on this lot (strictly per-player)
+  const foldedList = Array.isArray(lot.foldedTeamIds)
+    ? lot.foldedTeamIds.map(x => String(x).toUpperCase())
+    : (Array.isArray(room.foldedTeams) ? room.foldedTeams.map(x => String(x).toUpperCase()) : []);
+  const isFolded = foldedList.includes(myFranchise);
 
   // Query ALL bid and fold buttons across the page (both Mobile dock and Desktop sidebar)
   const bidButtons = document.querySelectorAll('#btn-place-bid, #btn-place-bid-desktop, .btn-bid, [data-action="bid"]');
@@ -2663,7 +2664,7 @@ if (btnFoldPlayer) {
     }
 
     const foldedList = (lot.foldedTeamIds || room.foldedTeams || []).map(x => String(x).toUpperCase());
-    if (foldedList.includes(myFranchise) || (myTeam && myTeam.isFolded)) {
+    if (foldedList.includes(myFranchise)) {
       showToast('You have already folded for this player.', 'info');
       return;
     }
@@ -2679,6 +2680,10 @@ if (btnFoldPlayer) {
         if (room.currentLot) {
           if (!room.currentLot.foldedTeamIds) room.currentLot.foldedTeamIds = [];
           if (!room.currentLot.foldedTeamIds.includes(myFranchise)) room.currentLot.foldedTeamIds.push(myFranchise);
+        }
+        if (lot) {
+          if (!lot.foldedTeamIds) lot.foldedTeamIds = [];
+          if (!lot.foldedTeamIds.includes(myFranchise)) lot.foldedTeamIds.push(myFranchise);
         }
         if (myTeam) myTeam.isFolded = true;
         if (room.teams?.[myFranchise]) room.teams[myFranchise].isFolded = true;
@@ -2713,7 +2718,7 @@ if (btnPlaceBid) {
 
     // Strict guard: Folded teams cannot bid
     const foldedList = (lot.foldedTeamIds || room.foldedTeams || []).map(x => String(x).toUpperCase());
-    if (foldedList.includes(myFranchise) || (myTeam && myTeam.isFolded)) {
+    if (foldedList.includes(myFranchise)) {
       showToast('You have folded for this player and cannot bid.', 'warning');
       return;
     }
