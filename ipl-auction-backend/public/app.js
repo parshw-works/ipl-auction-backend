@@ -1119,18 +1119,18 @@ function attemptSessionReentry() {
   const targetCode = urlRoom ? urlRoom.toUpperCase().trim() : null;
 
   if (targetCode) {
-    if (sessions[targetCode]) {
+    if (sessions[targetCode] && sessions[targetCode].sessionToken) {
       reconnectToRoom(targetCode, sessions[targetCode]);
       return;
     }
-    // Direct link or refresh without cached session: query room directly
-    const pId = getOrCreatePlayerId();
-    const storedName = localStorage.getItem('ipl_manager_name') || 'Player ' + Math.floor(Math.random() * 90 + 10);
-    reconnectToRoom(targetCode, {
-      roomCode: targetCode,
-      playerId: pId,
-      managerName: storedName
-    });
+    // Shared link without cached session (H9): route cleanly to Home Join tab with code pre-filled
+    showView('home');
+    if (btnTabJoin) btnTabJoin.click();
+    if (inputJoinRoomCode) {
+      inputJoinRoomCode.value = targetCode;
+      inputJoinRoomCode.focus();
+    }
+    showToast(`Enter your handle to join Room #${targetCode}!`, 'info');
     return;
   }
 }
@@ -1854,6 +1854,14 @@ function renderModalRetentionGrid() {
     const retentionIndex = mySelectedRetentions.indexOf(player.id);
     const slotCost = retentionIndex >= 0 ? RETENTION_COSTS[retentionIndex] : (RETENTION_COSTS[mySelectedRetentions.length] || 100000000);
 
+    // Check if player is already retained by another team in the room (H5)
+    const teamsList = (currentRoom && currentRoom.teams) 
+      ? (Array.isArray(currentRoom.teams) ? currentRoom.teams : Object.values(currentRoom.teams))
+      : [];
+    const myFId = myTeam ? myTeam.franchiseId : null;
+    const retainingTeam = teamsList.find(t => t.franchiseId !== myFId && Array.isArray(t.retentions) && t.retentions.includes(player.id));
+    const isLockedByOther = !!retainingTeam;
+
     const roleColors = {
       'Batter': 'bg-amber-500/20 text-amber-300 border-amber-500/30',
       'Bowler': 'bg-sky-500/20 text-sky-300 border-sky-500/30',
@@ -1869,7 +1877,9 @@ function renderModalRetentionGrid() {
 
     const card = document.createElement('div');
     card.className = `p-3.5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden backdrop-blur-xl ${
-      isRetained 
+      isLockedByOther
+        ? 'border-red-500/30 bg-red-950/20 opacity-60 cursor-not-allowed'
+        : isRetained 
         ? 'border-amber-400 bg-gradient-to-b from-amber-500/20 to-[#0d1324] shadow-2xl shadow-amber-500/20 ring-2 ring-amber-400/70 scale-[1.01]' 
         : 'border-white/10 bg-[#0d1324]/90 hover:border-white/25 hover:bg-[#121a32]'
     }`;
@@ -1884,7 +1894,9 @@ function renderModalRetentionGrid() {
             onerror="this.src='/icons/player_avatar.svg'"
           />
           ${
-            isRetained 
+            isLockedByOther
+              ? `<span class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-red-600 text-white font-black text-xs flex items-center justify-center shadow-lg border border-white"><i class="fa-solid fa-ban text-[10px]"></i></span>`
+              : isRetained 
               ? `<span class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shadow-lg border border-white"><i class="fa-solid fa-lock text-[10px]"></i></span>`
               : ''
           }
@@ -1910,16 +1922,22 @@ function renderModalRetentionGrid() {
           <b class="text-amber-400 font-bold">${formatCurrency(slotCost)}</b>
         </div>
         <button class="px-3.5 py-1.5 rounded-xl text-[10px] font-black font-display uppercase tracking-wider transition ${
-          isRetained 
+          isLockedByOther
+            ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+            : isRetained 
             ? 'bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/30' 
             : 'bg-[#162347] hover:bg-[#1e3060] text-slate-200 border border-white/15'
         }">
-          ${isRetained ? 'LOCKED ✓' : 'RETAIN +'}
+          ${isLockedByOther ? `TAKEN (${retainingTeam.franchiseId || 'OTHER'})` : isRetained ? 'LOCKED ✓' : 'RETAIN +'}
         </button>
       </div>
     `;
 
     card.addEventListener('click', () => {
+      if (isLockedByOther) {
+        showToast(`${player.name} is already retained by ${retainingTeam.name || retainingTeam.franchiseId}!`, 'warning');
+        return;
+      }
       toggleRetentionPlayer(player.id);
     });
 
@@ -1931,10 +1949,36 @@ function toggleRetentionPlayer(playerId) {
   if (mySelectedRetentions.includes(playerId)) {
     mySelectedRetentions = mySelectedRetentions.filter(id => id !== playerId);
   } else {
+    // Check if player is locked by another team (H5)
+    const teamsList = (currentRoom && currentRoom.teams) 
+      ? (Array.isArray(currentRoom.teams) ? currentRoom.teams : Object.values(currentRoom.teams))
+      : [];
+    const myFId = myTeam ? myTeam.franchiseId : null;
+    const retainingTeam = teamsList.find(t => t.franchiseId !== myFId && Array.isArray(t.retentions) && t.retentions.includes(playerId));
+    if (retainingTeam) {
+      showToast(`This player is already retained by ${retainingTeam.name || retainingTeam.franchiseId}!`, 'error');
+      return;
+    }
+
     if (mySelectedRetentions.length >= currentRoom.settings.retentionsAllowed) {
       showToast(`Maximum ${currentRoom.settings.retentionsAllowed} retentions allowed by Host`, 'warning');
       return;
     }
+
+    // Overseas quota validation (H6)
+    const player = currentFranchiseRoster ? currentFranchiseRoster.find(p => p.id === playerId) : null;
+    if (player && player.isOverseas) {
+      const currentOverseasCount = mySelectedRetentions.reduce((cnt, id) => {
+        const p = currentFranchiseRoster ? currentFranchiseRoster.find(item => item.id === id) : null;
+        return cnt + (p && p.isOverseas ? 1 : 0);
+      }, 0);
+      const maxOverseas = (currentRoom.settings && currentRoom.settings.maxOverseas) || 8;
+      if (currentOverseasCount >= maxOverseas) {
+        showToast(`Cannot retain more than ${maxOverseas} overseas players!`, 'warning');
+        return;
+      }
+    }
+
     mySelectedRetentions.push(playerId);
   }
 
@@ -3114,10 +3158,14 @@ document.querySelectorAll('.cheer-btn').forEach(btn => {
     if (cheerType === 'lightning') triggerLightningArc();
 
     if (socket && socket.connected) {
+      const roomCode = currentRoomCode || window.currentRoomCode;
+      const sessionToken = getActiveSessionToken(roomCode);
       socket.emit('spectator_cheer', {
+        roomCode,
         teamId: currentAllegiance,
         cheerType,
-        cheerEmoji: emoji
+        cheerEmoji: emoji,
+        sessionToken
       });
     }
   });
@@ -3268,7 +3316,8 @@ if (btnHostConcludeAuction) {
       return;
     }
     if (!confirm('Conclude auction early and finalize official championship standings?')) return;
-    socket.emit('host_conclude_auction', {}, (res) => {
+    const token = getActiveSessionToken(currentRoom ? currentRoom.code : currentRoomCode);
+    socket.emit('host_conclude_auction', { sessionToken: token }, (res) => {
       if (res && res.success) {
         showToast('Auction concluded by Host! Standings finalizing...', 'info');
       } else {
@@ -3916,8 +3965,18 @@ if (socket) {
   else if (path.includes('auction') || window.location.hash.includes('auction')) initialView = 'auction';
   else if (path.includes('podium') || window.location.hash.includes('podium')) initialView = 'podium';
 
+  // H9: Direct shared link without active session must stay on Home Join tab
+  const sessions = getActiveSessions();
+  if (roomCode && (!sessions[roomCode] || !sessions[roomCode].sessionToken)) {
+    initialView = 'home';
+  }
+
   showView(initialView, roomCode);
   if (initialView === 'lobby') {
     renderFranchiseGrid();
+  }
+  if (roomCode && (!sessions[roomCode] || !sessions[roomCode].sessionToken)) {
+    if (btnTabJoin) btnTabJoin.click();
+    if (inputJoinRoomCode) inputJoinRoomCode.value = roomCode;
   }
 })();
